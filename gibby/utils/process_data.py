@@ -15,10 +15,10 @@ from itertools import combinations, product
 import ase
 
 
-def parse_finite_difference_files(path:str):
+def parse_finite_difference_files(path: str):
     """
     Read the OUTCAR file to get the energy, hessian, atoms, and atoms_list
-    
+
     Args:
         path (str): Path to the directory containing the OUTCAR file
 
@@ -34,7 +34,10 @@ def parse_finite_difference_files(path:str):
     except FileNotFoundError:
         return False, None, None, None
 
-    completed = re.search("General timing and accounting informations for this job", outcar) is not None
+    completed = (
+        re.search("General timing and accounting informations for this job", outcar)
+        is not None
+    )
 
     if not completed:
         return False, None, None, None
@@ -48,7 +51,7 @@ def parse_finite_difference_files(path:str):
         if line == " SECOND DERIVATIVES (NOT SYMMETRIZED)\n":
             break
         idx += 1
-    complete = False        
+    complete = False
     while not complete:
         line = lines[idx + 3]
         vals = line.split()[1:]
@@ -64,6 +67,7 @@ def parse_finite_difference_files(path:str):
 
     return completed, hessian, atoms_list, atoms_list[0]
 
+
 def is_adsorbate_adsorbed_and_unreacted(adsorbate_slab_config: ase.Atoms):
     """
     Check to see if the adsorbate is adsorbed on the surface.
@@ -75,8 +79,12 @@ def is_adsorbate_adsorbed_and_unreacted(adsorbate_slab_config: ase.Atoms):
     Returns:
         (bool): True if the adsorbate is adsorbed, False otherwise.
     """
-    adsorbate_idxs = [idx for idx, tag in enumerate(adsorbate_slab_config.get_tags()) if tag == 2]
-    surface_idxs = [idx for idx, tag in enumerate(adsorbate_slab_config.get_tags()) if tag != 2]
+    adsorbate_idxs = [
+        idx for idx, tag in enumerate(adsorbate_slab_config.get_tags()) if tag == 2
+    ]
+    surface_idxs = [
+        idx for idx, tag in enumerate(adsorbate_slab_config.get_tags()) if tag != 2
+    ]
     elements = adsorbate_slab_config.get_chemical_symbols()
     all_combos = list(product(adsorbate_idxs, surface_idxs))
     adsorbed_and_connected = []
@@ -88,10 +96,13 @@ def is_adsorbate_adsorbed_and_unreacted(adsorbate_slab_config: ase.Atoms):
         r2 = covalent_radii[atomic_numbers[elements[combo[1]]]]
         distance_ratio = total_distance / (r1 + r2)
         if distance_ratio < 1.25:
-            adsorbed_and_connected.append(check_surface_atom_connectivity(combo[1], adsorbate_slab_config, [])[0])
+            adsorbed_and_connected.append(
+                check_surface_atom_connectivity(combo[1], adsorbate_slab_config, [])[0]
+            )
     if len(adsorbed_and_connected) == 0:
         return False
     return all(adsorbed_and_connected)
+
 
 def is_edge_list_respected(frame_initial: ase.Atoms, frame_final: list):
     """
@@ -103,8 +114,12 @@ def is_edge_list_respected(frame_initial: ase.Atoms, frame_final: list):
             This must comply with ocp tagging conventions.
         edge_list (list[tuples]): The expected edges
     """
-    adsorbate_initial = frame_initial[[idx for idx, tag in enumerate(frame_initial.get_tags()) if tag == 2]]
-    adsorbate_final = frame_final[[idx for idx, tag in enumerate(frame_final.get_tags()) if tag == 2]]
+    adsorbate_initial = frame_initial[
+        [idx for idx, tag in enumerate(frame_initial.get_tags()) if tag == 2]
+    ]
+    adsorbate_final = frame_final[
+        [idx for idx, tag in enumerate(frame_final.get_tags()) if tag == 2]
+    ]
     elements = adsorbate_initial.get_chemical_symbols()
     all_combos = list(combinations(range(len(adsorbate_initial)), 2))
 
@@ -129,6 +144,7 @@ def is_edge_list_respected(frame_initial: ase.Atoms, frame_final: list):
             return False
     return True
 
+
 def check_surface_atom_connectivity(surface_idx, adsorbate_slab_config, idxs_checked):
 
     """
@@ -146,22 +162,30 @@ def check_surface_atom_connectivity(surface_idx, adsorbate_slab_config, idxs_che
             with the subsurface atoms, False otherwise.
     """
     idxs_checked.append(surface_idx)
-    slab_idxs = [idx for idx, tag in enumerate(adsorbate_slab_config.get_tags()) if tag != 2]
+    slab_idxs = [
+        idx for idx, tag in enumerate(adsorbate_slab_config.get_tags()) if tag != 2
+    ]
     tags = adsorbate_slab_config.get_tags()
     syms = adsorbate_slab_config.get_chemical_symbols()
     r1 = covalent_radii[atomic_numbers[syms[surface_idx]]]
     neighbors = []
     for idxy in slab_idxs:
         r2 = covalent_radii[atomic_numbers[syms[idxy]]]
-        if adsorbate_slab_config.get_distance(surface_idx, idxy, mic=True) < 1.25 * (r1 + r2) and idxy not in idxs_checked:
+        if (
+            adsorbate_slab_config.get_distance(surface_idx, idxy, mic=True)
+            < 1.25 * (r1 + r2)
+            and idxy not in idxs_checked
+        ):
             neighbors.append(idxy)
     if len(neighbors) == 0:
         return False, idxs_checked
-    
+
     neighbor_bools = [tags[idx] == 0 for idx in neighbors]
     if any(neighbor_bools):
         return True, idxs_checked
     else:
         for idx in neighbors:
             if idx not in idxs_checked:
-                return check_surface_atom_connectivity(idx, adsorbate_slab_config, idxs_checked)
+                return check_surface_atom_connectivity(
+                    idx, adsorbate_slab_config, idxs_checked
+                )

@@ -8,13 +8,14 @@ import pandas as pd
 
 
 def hessian_to_corrections(
-        dataframe, 
-        hessian_column_key:str, 
-        success_column_key:str="success", 
-        atoms_column_key:str="atoms", 
-        st_conversion=1.239842e-4, 
-        temperature=300, 
-        hessian_from_vasp=False):
+    dataframe,
+    hessian_column_key: str,
+    success_column_key: str = "success",
+    atoms_column_key: str = "atoms",
+    st_conversion=1.239842e-4,
+    temperature=300,
+    hessian_from_vasp=False,
+):
     """
     input a dataframe containing hessians in a column, given by hessian_column_key
     also boolean values for successful convergence at success_column_key, letting this function know to use these hessians
@@ -27,23 +28,35 @@ def hessian_to_corrections(
     """
 
     results_dict = defaultdict(list)
-    for index, row in tqdm(dataframe.iterrows(), total=len(dataframe), desc=f"Processing hessians for {hessian_column_key}"):
+    for index, row in tqdm(
+        dataframe.iterrows(),
+        total=len(dataframe),
+        desc=f"Processing hessians for {hessian_column_key}",
+    ):
         if row[success_column_key]:
             hessian = row[hessian_column_key]
             if hessian_from_vasp:
                 hessian = -hessian
 
             atoms = row[atoms_column_key]
-            free_indices = [i for i in range(len(atoms)) if not i in atoms.constraints[0].index]
+            free_indices = [
+                i for i in range(len(atoms)) if not i in atoms.constraints[0].index
+            ]
 
-            vibdata = ase.vibrations.VibrationsData.from_2d(atoms, hessian_2d=hessian, indices=free_indices)
+            vibdata = ase.vibrations.VibrationsData.from_2d(
+                atoms, hessian_2d=hessian, indices=free_indices
+            )
             freq = vibdata.get_frequencies()
             allcount += 1
             if sum(np.iscomplex(freq)):
                 complexcount += 1
             real_freq = np.real(freq)
-            thermo = HarmonicThermo([f*st_conversion for f in real_freq if not f == 0])
-            ts = thermo.get_entropy(temperature=temperature, verbose=False)*temperature
+            thermo = HarmonicThermo(
+                [f * st_conversion for f in real_freq if not f == 0]
+            )
+            ts = (
+                thermo.get_entropy(temperature=temperature, verbose=False) * temperature
+            )
             zpe = thermo.get_ZPE_correction()
             deltah = thermo._vibrational_energy_contribution(temperature=temperature)
             eigvalues, eigvectors = np.linalg.eig(hessian)
@@ -57,6 +70,5 @@ def hessian_to_corrections(
             results_dict["real_freq"].append(real_freq)
             results_dict["eigenvalues"].append([i for i in eigvalues])
             results_dict["eigenvectors"].append([i for i in eigvectors])
-    
 
     return pd.DataFrame(results_dict)
