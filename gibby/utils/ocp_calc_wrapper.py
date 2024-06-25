@@ -2,6 +2,7 @@ from ocpmodels.common.relaxation.ase_utils import OCPCalculator, logging
 from ocpmodels.trainers.base_trainer import os, errno, load_state_dict, load_scales_compat
 import types
 import torch
+import numpy as np
 
 # this wrapper works for modifying the OCPCalculator in commit c52aeeacb3854c8d7841ab3953a9cfef284a301f
 
@@ -41,6 +42,11 @@ class OCPCalcWrapper(OCPCalculator):
             self.trainer.load_checkpoint(checkpoint_path, checkpoint)
         except NotImplementedError:
             logging.warning("Unable to load checkpoint!")
+    
+    def calculate(self, atoms, properties, system_changes) -> None:
+        super().calculate(atoms, properties, system_changes)
+        self.results["forces"] = self.results["forces"].astype(np.float32)
+        
 
 # base_trainer overwrite for load_checkpoint
 def base_trainer_override_load_checkpoint(
@@ -122,3 +128,24 @@ def recursive_update(dict0, dict1):
         else:
             dict0[k] = v
     return dict0
+
+def get_config_override(checkpoint_path: str, scale_file_path: str):
+    config_override = {}
+    if "gemnet_dt" in checkpoint_path:
+        config_override = {
+            "model_attributes": {
+                "scale_file": scale_file_path,
+            },
+        }
+    elif "schnet" in checkpoint_path:
+        config_override = {
+            "task":{
+                "strict_load": False,
+            },
+        }
+    else:
+        config_override = {}
+
+    config_override = recursive_update(config_override, {"optim": {"scheduler": None}})
+
+    return config_override
