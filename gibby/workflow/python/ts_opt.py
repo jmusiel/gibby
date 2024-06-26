@@ -7,6 +7,11 @@ from ase.io import read
 from ase.calculators.emt import EMT
 from gibby.utils.ocp_calc_wrapper import OCPCalcWrapper, get_config_override
 from gibby.utils.ase_utils import get_fmax, get_hessian
+from ase.calculators.singlepoint import SinglePointCalculator
+import wandb
+import pandas as pd
+from tqdm import tqdm
+import numpy as np
 
 from sella import Sella, Constraints
 
@@ -15,9 +20,20 @@ def get_parser():
     parser = argparse.ArgumentParser()
     parser.add_argument(
         "--neb_path",
-        type=str, 
-        default="/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/dissociations/dissociation_ood_22_8962_11_111-3_neb1.0.traj",
-        # default="/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/dissociations",
+        type=str,
+        nargs="+", 
+        # default=[
+        #     "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/dissociations/dissociation_ood_22_8962_11_111-3_neb1.0.traj",
+        #     "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/dissociations/dissociation_id_611_9766_9_111-1_neb1.0.traj",
+        #     "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/dissociations/dissociation_ood_255_857_36_000-0_neb1.0.traj",
+        #     "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/dissociations/dissociation_ood_473_6681_28_111-4_neb1.0.traj",
+        #     "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/dissociations/dissociation_ood_486_5397_13_011-1_neb1.0.traj",
+        # ],
+        default=[
+            "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/dissociations",
+            "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/desorptions",
+            "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/transfers",
+        ],
     )
     parser.add_argument(
         "--checkpoint",
@@ -33,19 +49,104 @@ def get_parser():
     parser.add_argument(
         "--output_dir",
         type=str, 
-        default="sella_results",
+        default=None,
+    )
+    parser.add_argument(
+        "--output_name",
+        type=str, 
+        default="ts_opt_df",
     )
     parser.add_argument(
         "--scale_file",
         type=str, 
         default="/home/jovyan/working/ocp/configs/s2ef/all/gemnet/scaling_factors/gemnet-dT.json",
     )
+    parser.add_argument(
+        "--wandb",
+        type=str, 
+        default="n",
+        help="whether to use wandb for logging (only in sweep mode), options:y/n, default: n"
+    )
+    parser.add_argument(
+        "--nsteps",
+        type=int, 
+        default=500,
+    )
+
+    # sella hyperparameters
+    parser.add_argument(
+        "--method",
+        type=str, 
+        default="prfo",
+        help="sella optimization algorithm, default for saddles is 'prfo', options are: ['qn', 'prfo', 'rfo']"
+    )
+    parser.add_argument(
+        "--eta",
+        type=float, 
+        default=0.0007,
+        help="Finite difference step size"
+    )
+    parser.add_argument(
+        "--gamma",
+        type=float, 
+        default=0.1,
+        help="Convergence criterion for iterative diagonalization"
+    )
+    parser.add_argument(
+        "--delta0",
+        type=float, 
+        default=0.048,
+        help="Initial trust radius"
+    )
+    parser.add_argument(
+        "--rho_inc",
+        type=float, 
+        default=1.035,
+        help="Threshold for increasing trust radius"
+    )
+    parser.add_argument(
+        "--rho_dec",
+        type=float, 
+        default=5.0,
+        help="Threshold for decreasing trust radius"
+    )
+    parser.add_argument(
+        "--sigma_inc",
+        type=float, 
+        default=1.15,
+        help="Trust radius increase factor"
+    )
+    parser.add_argument(
+        "--sigma_dec",
+        type=float,
+        default=0.65,
+        help="Trust radius decrease factor"
+    )
     return parser
 
 def main(config):
     pp.pprint(config)
 
-    # os.makedirs(config['output_dir'], exist_ok=True)
+    results_data = {
+        "atoms": [],
+        "name": [],
+        "neb_list": [],
+        "converged": [],
+        "NEB_ML_max_energy": [],
+        "NEB_ML_fmax": [],
+        "TS_opt_ML_max_energy": [],
+        "TS_opt_ML_fmax": [],
+    }
+
+    neb_files_list = []
+    if isinstance(config['neb_path'], str):
+        neb_files_list.append(config['neb_path'])
+    else:
+        for path in config['neb_path']:
+            if path.endswith('.traj'):
+                neb_files_list.append(path)
+            else:
+                neb_files_list += [os.path.join(path, file) for file in os.listdir(path) if file.endswith('.traj')]
 
     config_override = get_config_override(config['checkpoint'], scale_file_path=config['scale_file'])
 
@@ -58,26 +159,27 @@ def main(config):
     else:
         calc = EMT()
 
-    neb_files_list = []
-    if config['neb_path'].endswith('.traj'):
-        neb_files_list = [config['neb_path']]
-    else:
-        neb_files_list = [os.path.join(config['neb_path'], file) for file in os.listdir(config['neb_path']) if file.endswith('.traj')]
-        print(os.listdir(config['neb_path']))
-
-    for filepath in neb_files_list:
+    for filepath in tqdm(neb_files_list):
+        neb_list = []
         neb_traj = read(filepath, index='-10:')
-        max_energy = neb_traj[1].get_potential_energy()
-        ts_atoms = neb_traj[1]
-        index = 0
+        max_energy = -np.inf
         for i, atoms in enumerate(neb_traj[1:-1]):
-            atoms.calc = calc
-            print(f"atoms {i} {atoms.symbols} calc: {atoms.get_potential_energy():.4f}, fmax: {get_fmax(atoms.get_forces()):.4f}")
-            if atoms.get_potential_energy() > max_energy:
-                max_energy = atoms.get_potential_energy()
-                ts_atoms = atoms
+            neb_list.append(atoms) # add to neb_list the DFT singlepoint results
+            atoms_copy = atoms.copy()
+            atoms_copy.calc = calc
+            energy = atoms_copy.get_potential_energy()
+            forces = atoms_copy.get_forces()
+            sp_calc = SinglePointCalculator(atoms=atoms_copy, energy=float(energy), forces=forces)
+            sp_calc.implemented_properties = ["energy", "forces"]
+            atoms_copy.calc = sp_calc
+            print(f"NEB atoms {i} {atoms_copy.symbols} DFT calc: {energy:.4f}, fmax: {get_fmax(forces):.4f}")
+            if energy > max_energy:
+                max_energy = energy
+                max_fmax = get_fmax(forces)
+                ts_atoms = atoms_copy
                 index = i
-        print(f"max energy {max_energy} index {index}, fmax: {get_fmax(ts_atoms.get_forces())}")
+        print(f"ML calc max energy: {max_energy} index {index}, fmax: {get_fmax(ts_atoms.get_forces())}")
+        ts_atoms.calc = calc
 
         cons = Constraints(ts_atoms)
         for atom in ts_atoms:
@@ -89,11 +191,57 @@ def main(config):
             constraints=cons,
             trajectory=None,
             hessian_function=None,
-            eta=5e-5,
-            delta0=1.3e-4,
+            eig=True, # saddlepoint setting: True, relaxation: False
+            order=1, # saddlepoint setting: 1, relaxation: 0
+            method=config['method'], # saddplepoint setting: 'prfo'
+            eta=config['eta'],        # Finite difference step size
+            gamma=config['gamma'],       # Convergence criterion for iterative diagonalization
+            delta0=config['delta0'],   # Initial trust radius
+            rho_inc=config['rho_inc'],   # Threshold for increasing trust radius
+            rho_dec=config['rho_dec'],     # Threshold for decreasing trust radius
+            sigma_inc=config['sigma_inc'],  # Trust radius increase factor
+            sigma_dec=config['sigma_dec'],  # Trust radius decrease factor
         )
-        dyn.run(1e-3, 1000)
+        if config['wandb'] == 'y':
+            dyn.attach(wandb_callback_func, interval=1, atoms=dyn.atoms, rho=dyn.rho, step=dyn.nsteps)
+        dyn.run(0.01, config['nsteps'])
         print(f"max energy {ts_atoms.get_potential_energy():.4f}, fmax: {get_fmax(ts_atoms.get_forces()):.4f}")
+
+        energy = ts_atoms.get_potential_energy()
+        forces = ts_atoms.get_forces()
+        sp_calc = SinglePointCalculator(atoms=ts_atoms, energy=float(energy), forces=forces)
+        sp_calc.implemented_properties = ["energy", "forces"]
+        ts_atoms.calc = sp_calc
+
+        converged = False
+        if get_fmax(forces) <= 0.01:
+            converged = True
+
+        results_data['atoms'].append(ts_atoms)
+        results_data['name'].append(filepath.split('/')[-1])
+        results_data['neb_list'].append(neb_list)
+        results_data['converged'].append(converged)
+        results_data['NEB_ML_max_energy'].append(max_energy)
+        results_data['NEB_ML_fmax'].append(max_fmax)
+        results_data['TS_opt_ML_max_energy'].append(energy)
+        results_data['TS_opt_ML_fmax'].append(get_fmax(forces))
+
+    print(f"fraction converged: {sum(results_data['converged'])/len(results_data['converged'])}")
+
+    if config['output_dir'] is not None:
+        os.makedirs(config['output_dir'], exist_ok=True)
+        df = pd.DataFrame(results_data)
+        df.to_pickle(os.path.join(config['output_dir'], f"{config['output_name']}.pkl"))
+
+def wandb_callback_func(atoms, rho, step):
+    log_dict = {
+        "fmax": get_fmax(atoms.get_forces()),
+        "energy": atoms.get_potential_energy(),
+        "i": step,
+        "rho": rho,
+    }
+    wandb.log(log_dict)
+    
 
 
 if __name__ == "__main__":
