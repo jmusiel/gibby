@@ -1,17 +1,23 @@
 from ocpmodels.common.relaxation.ase_utils import OCPCalculator, logging
-from ocpmodels.trainers.base_trainer import os, errno, load_state_dict, load_scales_compat
+from ocpmodels.trainers.base_trainer import (
+    os,
+    errno,
+    load_state_dict,
+    load_scales_compat,
+)
 import types
 import torch
 import numpy as np
 
 # this wrapper works for modifying the OCPCalculator in commit c52aeeacb3854c8d7841ab3953a9cfef284a301f
 
+
 class OCPCalcWrapper(OCPCalculator):
     def __init__(
         self,
         checkpoint_path: str,
-        config_overrides: dict={},
-        cpu: bool=True,
+        config_overrides: dict = {},
+        cpu: bool = True,
     ):
         checkpoint = torch.load(checkpoint_path, map_location=torch.device("cpu"))
         config = checkpoint["config"]
@@ -19,16 +25,14 @@ class OCPCalcWrapper(OCPCalculator):
             config["dataset"] = [config["dataset"]]
         config = recursive_update(config, config_overrides)
 
-        super().__init__(
-                config_yml=config,
-                checkpoint_path=checkpoint_path,
-                cpu=cpu
-            )
-    
+        super().__init__(config_yml=config, checkpoint_path=checkpoint_path, cpu=cpu)
+
     # overwrite load checkpoint so that trainer load checkpoint can be overwritten to allow inference from checkpoints which still include "optimizer"
     # (such as checkpoints which were saved for continued finetuning, but are being used for inference only i.e. "checkpoint.pt" instead of "best_checkpoint.pt")
     def load_checkpoint(
-        self, checkpoint_path: str, checkpoint = {},
+        self,
+        checkpoint_path: str,
+        checkpoint={},
     ) -> None:
         """
         Load existing trained model
@@ -37,20 +41,22 @@ class OCPCalcWrapper(OCPCalculator):
             checkpoint_path: string
                 Path to trained model
         """
-        self.trainer.load_checkpoint = types.MethodType(base_trainer_override_load_checkpoint, self.trainer)
+        self.trainer.load_checkpoint = types.MethodType(
+            base_trainer_override_load_checkpoint, self.trainer
+        )
         try:
             self.trainer.load_checkpoint(checkpoint_path, checkpoint)
         except NotImplementedError:
             logging.warning("Unable to load checkpoint!")
-    
+
     def calculate(self, atoms, properties, system_changes) -> None:
         super().calculate(atoms, properties, system_changes)
         self.results["forces"] = self.results["forces"].astype(np.float32)
-        
+
 
 # base_trainer overwrite for load_checkpoint
 def base_trainer_override_load_checkpoint(
-    self, checkpoint_path: str, checkpoint = {}
+    self, checkpoint_path: str, checkpoint={}
 ) -> None:
     if not checkpoint:
         if not os.path.isfile(checkpoint_path):
@@ -60,9 +66,7 @@ def base_trainer_override_load_checkpoint(
         else:
             logging.info(f"Loading checkpoint from: {checkpoint_path}")
             map_location = torch.device("cpu") if self.cpu else self.device
-            checkpoint = torch.load(
-                checkpoint_path, map_location=map_location
-            )
+            checkpoint = torch.load(checkpoint_path, map_location=map_location)
 
     self.epoch = checkpoint.get("epoch", 0)
     self.step = checkpoint.get("step", 0)
@@ -114,13 +118,11 @@ def base_trainer_override_load_checkpoint(
 
     for key in checkpoint["normalizers"]:
         if key in self.normalizers:
-            self.normalizers[key].load_state_dict(
-                checkpoint["normalizers"][key]
-            )
+            self.normalizers[key].load_state_dict(checkpoint["normalizers"][key])
         if self.scaler and checkpoint["amp"]:
             self.scaler.load_state_dict(checkpoint["amp"])
 
-        
+
 def recursive_update(dict0, dict1):
     for k, v in dict1.items():
         if isinstance(v, dict):
@@ -128,6 +130,7 @@ def recursive_update(dict0, dict1):
         else:
             dict0[k] = v
     return dict0
+
 
 def get_config_override(checkpoint_path: str, scale_file_path: str):
     config_override = {}
@@ -139,7 +142,7 @@ def get_config_override(checkpoint_path: str, scale_file_path: str):
         }
     elif "schnet" in checkpoint_path:
         config_override = {
-            "task":{
+            "task": {
                 "strict_load": False,
             },
         }
