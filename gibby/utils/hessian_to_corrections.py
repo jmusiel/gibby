@@ -47,9 +47,6 @@ def hessian_to_corrections(
                 atoms, hessian_2d=hessian, indices=free_indices
             )
             freq = vibdata.get_frequencies()
-            allcount += 1
-            if sum(np.iscomplex(freq)):
-                complexcount += 1
             real_freq = np.real(freq)
             thermo = HarmonicThermo(
                 [f * st_conversion for f in real_freq if not f == 0]

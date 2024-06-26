@@ -1,5 +1,6 @@
 import argparse
 import pprint
+
 pp = pprint.PrettyPrinter(indent=4)
 
 import os
@@ -43,7 +44,7 @@ def get_parser():
     )
     parser.add_argument(
         "--cpu",
-        type=str, 
+        type=str,
         default="n",
     )
     parser.add_argument(
@@ -58,7 +59,7 @@ def get_parser():
     )
     parser.add_argument(
         "--scale_file",
-        type=str, 
+        type=str,
         default="/home/jovyan/working/ocp/configs/s2ef/all/gemnet/scaling_factors/gemnet-dT.json",
     )
     parser.add_argument(
@@ -124,6 +125,7 @@ def get_parser():
     )
     return parser
 
+
 def main(config):
     pp.pprint(config)
 
@@ -148,12 +150,14 @@ def main(config):
             else:
                 neb_files_list += [os.path.join(path, file) for file in os.listdir(path) if file.endswith('.traj')]
 
-    config_override = get_config_override(config['checkpoint'], scale_file_path=config['scale_file'])
+    config_override = get_config_override(
+        config["checkpoint"], scale_file_path=config["scale_file"]
+    )
 
-    if config['checkpoint'] is not None:
+    if config["checkpoint"] is not None:
         calc = OCPCalcWrapper(
-            checkpoint_path=config['checkpoint'],
-            cpu=config["cpu"]=="y",
+            checkpoint_path=config["checkpoint"],
+            cpu=config["cpu"] == "y",
             config_overrides=config_override,
         )
     else:
@@ -185,7 +189,7 @@ def main(config):
         for atom in ts_atoms:
             if atom.index in ts_atoms.constraints[0].index:
                 cons.fix_translation(atom.index)
-        
+
         dyn = Sella(
             ts_atoms,
             constraints=cons,
