@@ -13,6 +13,7 @@ import wandb
 import pandas as pd
 from tqdm import tqdm
 import numpy as np
+from datetime import datetime
 
 from sella import Sella, Constraints
 
@@ -129,6 +130,8 @@ def get_parser():
 def main(config):
     pp.pprint(config)
 
+    timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+
     results_data = {
         "atoms": [],
         "name": [],
@@ -164,6 +167,14 @@ def main(config):
         calc = EMT()
 
     for filepath in tqdm(neb_files_list):
+        if config["wandb"] == 'y':
+            wandb.init(
+                config=config,
+                name=filepath.split('/')[-1],
+                project="ts_opt_sella",
+                group=timestamp_str,
+            )
+
         neb_list = []
         neb_traj = read(filepath, index='-10:')
         max_energy = -np.inf
@@ -208,7 +219,10 @@ def main(config):
         )
         if config['wandb'] == 'y':
             dyn.attach(wandb_callback_func, interval=1, atoms=dyn.atoms, rho=dyn.rho, step=dyn.nsteps)
-        dyn.run(0.01, config['nsteps'])
+        try:
+            dyn.run(0.01, config['nsteps'])
+        except Exception as e:
+            print(e)
         print(f"max energy {ts_atoms.get_potential_energy():.4f}, fmax: {get_fmax(ts_atoms.get_forces()):.4f}")
 
         energy = ts_atoms.get_potential_energy()
@@ -229,6 +243,9 @@ def main(config):
         results_data['NEB_ML_fmax'].append(max_fmax)
         results_data['TS_opt_ML_max_energy'].append(energy)
         results_data['TS_opt_ML_fmax'].append(get_fmax(forces))
+
+        if config["wandb"] == 'y':
+            wandb.finish()
 
     print(f"fraction converged: {sum(results_data['converged'])/len(results_data['converged'])}")
 
