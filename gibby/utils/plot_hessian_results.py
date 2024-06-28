@@ -47,10 +47,10 @@ def plot_corrections_histogram(
 def plot_hexbin_corrections(
         pred_dataframes_list,
         true_dataframe,
+        pred_dataframes_names: list=None,
         value_name: str = "eigenvalues",
         title_name=None, 
         size=16,
-        pred_dataframes_names: list=None,
     ):
     """
     Plot a hexbin plot of the corrections from a dataframe containing corrections.
@@ -85,10 +85,11 @@ def plot_hexbin_corrections(
         fig_cols = len(pred_dataframes_list)
     fig_rows = int(math.ceil(len(pred_dataframes_list)/fig_cols))
 
-    fig, axs = plt.subplots(fig_rows, fig_cols, figsize=(8*fig_cols+4, 6))
+    fig, axs = plt.subplots(fig_rows, fig_cols, figsize=(8*fig_cols+4, 6*fig_rows))
     if title_name is not None:
         fig.suptitle(title_name, fontsize=size)
 
+    min_max = (np.inf, -np.inf)
     axs = axs.flatten()
     for i, df in enumerate(pred_dataframes_list):
         i_name = "ML"
