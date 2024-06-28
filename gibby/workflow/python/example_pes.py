@@ -24,16 +24,19 @@ def main():
     index = 0
     fmax = 0.03
     kwargs_opt = {}
-    kwargs_surr = {"random_state": 0}
     scipy_integral = False
     temperature = 300 # [K]
+    show_plot = False
     save_plot = True
+    model = None
 
     from ase.build import fcc111
-    slab = fcc111('Pt', size=(3, 3, 4), vacuum=6)
+    slab = fcc111('Pt', size=(2, 2, 4), vacuum=6, a=3.92)
     
-    from ase import Atoms
-    ads = Atoms("O")
+    #from ase import Atoms
+    #ads = Atoms("O")
+    from ase.build import molecule
+    ads = molecule("CO")
     
     #from ase.calculators.emt import EMT
     #calc = EMT()
@@ -47,7 +50,7 @@ def main():
     # Add adsorbate.
     slab_opt = slab.copy()
     ads_opt = ads.copy()
-    position = np.dot([1/9, 1/9, 0], slab_opt.cell)
+    position = np.dot([1/6, 1/6, 0], slab_opt.cell)
     position[2] = height
     ads_opt.translate(position)
     slab_opt += ads_opt
@@ -82,13 +85,16 @@ def main():
         index=index,
         fmax=fmax,
         kwargs_opt=kwargs_opt,
-        kwargs_surr=kwargs_surr,
         scipy_integral=scipy_integral,
     )
+    pes.clean(empty_files=True)
     pes.run()
-    pes.surrogate_pes()
+    pes.surrogate_pes(model=model)
     entropy = pes.get_entropy_pes(temperature=temperature)
     print(f"PotentialEnergySampling entropy: {entropy*1e3:+7.4f} [meV/K]")
+    
+    if show_plot is True:
+        pes.show_surrogate_pes()
     
     if save_plot is True:
         pes.save_surrogate_pes(filename="pes.png")

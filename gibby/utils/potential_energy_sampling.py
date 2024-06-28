@@ -4,6 +4,8 @@
 
 import numpy as np
 from ase import units
+from ase.parallel import world
+from ase.utils.filecache import get_json_cache
 from ase.optimize import BFGS
 from ase.thermochemistry import HarmonicThermo
 
@@ -32,10 +34,10 @@ def get_1x1_slab_cell(atoms, symprec=1e-7, primitive=True):
     return Cell(np.dot(atoms.cell, np.identity(3)*[xx_fract, yy_fract, 1]))
 
 # -------------------------------------------------------------------------------------
-# GET MESHGRID AND XYZ POINTS
+# GET MESHGRID
 # -------------------------------------------------------------------------------------
 
-def get_meshgrid_and_xyz_points(cell, height, zz_function=None, spacing=0.2):
+def get_meshgrid(cell, height, zz_function=None, spacing=0.2):
 
     nx = int(np.ceil(cell.lengths()[0]/spacing))
     ny = int(np.ceil(cell.lengths()[1]/spacing))
@@ -46,7 +48,6 @@ def get_meshgrid_and_xyz_points(cell, height, zz_function=None, spacing=0.2):
     xx_grid = np.zeros([len(xr_vect), len(yr_vect)])
     yy_grid = np.zeros([len(xr_vect), len(yr_vect)])
     zz_grid = np.zeros([len(xr_vect), len(yr_vect)])
-    xyz_points = np.zeros([len(xr_vect)*len(yr_vect), 3])
     for ii, xr in enumerate(xr_vect):
         for jj, yr in enumerate(yr_vect):
             xx, yy, zz = np.dot([xr, yr, zr], cell)
@@ -55,9 +56,30 @@ def get_meshgrid_and_xyz_points(cell, height, zz_function=None, spacing=0.2):
             xx_grid[ii, jj] = xx
             yy_grid[ii, jj] = yy
             zz_grid[ii, jj] = zz
+
+    return xx_grid, yy_grid, zz_grid
+
+# -------------------------------------------------------------------------------------
+# GET XYZ POINTS
+# -------------------------------------------------------------------------------------
+
+def get_xyz_points(cell, height, zz_function=None, spacing=0.2):
+
+    nx = int(np.ceil(cell.lengths()[0]/spacing))
+    ny = int(np.ceil(cell.lengths()[1]/spacing))
+    xr_vect = np.linspace(0, 1, nx+1)
+    yr_vect = np.linspace(0, 1, ny+1)
+    zr = height/cell.lengths()[2]
+
+    xyz_points = np.zeros([len(xr_vect)*len(yr_vect), 3])
+    for ii, xr in enumerate(xr_vect):
+        for jj, yr in enumerate(yr_vect):
+            xx, yy, zz = np.dot([xr, yr, zr], cell)
+            if zz_function is not None:
+                zz = zz_function(xx, yy)
             xyz_points[ii*len(yr_vect)+jj] = xx, yy, zz
 
-    return xx_grid, yy_grid, zz_grid, xyz_points
+    return xyz_points
 
 # -------------------------------------------------------------------------------------
 # CONSTRAINED RELAXATION
@@ -115,8 +137,8 @@ class PotentialEnergySampling:
         index=0,
         fmax=0.01,
         kwargs_opt={},
-        kwargs_surr={},
         scipy_integral=False,
+        name="pes",
     ):
         self.slab = slab.copy()
         self.ads = ads.copy()
@@ -130,8 +152,13 @@ class PotentialEnergySampling:
         self.index = index
         self.fmax = fmax
         self.kwargs_opt = kwargs_opt
-        self.kwargs_surr = kwargs_surr
         self.scipy_integral = scipy_integral
+        
+        self.cache = get_json_cache(name)
+
+    @property
+    def name(self):
+        return str(self.cache.directory)
 
     def run(self):
         """Run Potential Energy Sampling method."""
@@ -146,7 +173,7 @@ class PotentialEnergySampling:
             self.cell = get_1x1_slab_cell(atoms=self.slab)
 
         # Get grid of points from spacing.
-        xx_grid, yy_grid, zz_grid, xyz_points = get_meshgrid_and_xyz_points(
+        xyz_points = get_xyz_points(
             cell=self.cell,
             height=self.height,
             spacing=self.spacing,
@@ -156,44 +183,82 @@ class PotentialEnergySampling:
         # Do constrained relaxations.
         xye_points = xyz_points.copy()
         for ii, position in enumerate(xyz_points):
-            slab_new = constrained_relaxation(
-                slab=self.slab,
-                ads=self.ads,
-                position=position,
-                calc=self.calc,
-                fix_com=self.fix_com,
-                index=self.index,
-                kwargs_opt=self.kwargs_opt,
-            )
-            xye_points[ii, 2] = slab_new.get_potential_energy()
+            with self.cache.lock(f"{ii:04d}") as handle:
+                if handle is None:
+                    xye_points[ii] = self.cache[f"{ii:04d}"]
+                    continue
+                slab_new = constrained_relaxation(
+                    slab=self.slab,
+                    ads=self.ads,
+                    position=position,
+                    calc=self.calc,
+                    fix_com=self.fix_com,
+                    index=self.index,
+                    kwargs_opt=self.kwargs_opt,
+                )
+                xye_points[ii,2] = slab_new.get_potential_energy()
+                if world.rank == 0:
+                    handle.save(xye_points[ii])
 
         self.xye_points = xye_points
+        self.es_grid = None
 
         return xye_points
 
-    def surrogate_pes(self):
-        """Train the GPR surrogate model for the PES."""
-        from sklearn.gaussian_process import GaussianProcessRegressor
-        gpr = GaussianProcessRegressor(**self.kwargs_surr)
-        gpr.fit(self.xye_points[:,:2], self.xye_points[:,2])
-        self.e_func = lambda xx, yy: gpr.predict([[xx, yy]])[0]
+    def clean(self, empty_files=False):
+        """Remove json files."""
+        if world.rank != 0:
+            return 0
+        if empty_files:
+            self.cache.strip_empties()
+        else:
+            self.cache.clear()
+
+    def surrogate_pes(self, model=None):
+        """Train the surrogate model for the PES."""
+        if model is None:
+            from scipy.interpolate import griddata
+            self.e_func = lambda xx, yy: griddata(
+                points=self.xye_points[:,:2],
+                values=self.xye_points[:,2],
+                xi=[xx, yy],
+                method='cubic',
+                rescale=False,
+            )
+        else:
+            model.fit(self.xye_points[:,:2], self.xye_points[:,2])
+            self.e_func = lambda xx, yy: model.predict([[xx, yy]])[0]
     
     def get_meshgrid_surrogate(self):
         """Get mesh grid of PES from surrogate model."""
-        xx_grid, yy_grid, ee_grid, xye_points = get_meshgrid_and_xyz_points(
+        self.xs_grid, self.ys_grid, self.es_grid = get_meshgrid(
             cell=self.cell,
             height=self.height,
             spacing=self.spacing_surr,
             zz_function=self.e_func,
         )
-        return xx_grid, yy_grid, ee_grid, xye_points
     
     def save_surrogate_pes(self, filename="pes.png"):
         """Save 2D plot of PES to file."""
         import matplotlib.pyplot as plt
-        xx_grid, yy_grid, ee_grid, xye_points = self.get_meshgrid_surrogate()
-        plt.pcolor(xx_grid, yy_grid, ee_grid)
+        if self.es_grid is None:
+            self.get_meshgrid_surrogate()
+        plt.pcolor(self.xs_grid, self.ys_grid, self.es_grid)
         plt.savefig(filename)
+
+    def show_surrogate_pes(self):
+        """Show 3D plot of PES function."""
+        import matplotlib.pyplot as plt
+        if self.es_grid is None:
+            self.get_meshgrid_surrogate()
+        ax = plt.figure().add_subplot(projection='3d')
+        ax.plot_surface(self.xs_grid, self.ys_grid, self.es_grid)
+        ax.scatter(
+            self.xye_points[:,0],
+            self.xye_points[:,1],
+            self.xye_points[:,2],
+        )
+        plt.show()
 
     def get_integral_pes_scipy(self, temperature):
         """Integrate the function of the PES with scipy."""
@@ -205,17 +270,18 @@ class PotentialEnergySampling:
             func=func,
             a=0.,
             b=self.cell[1, 1],
-            gfun=lambda xx: self.cell[1, 0]/self.cell[1, 1]*xx,
-            hfun=lambda xx: self.cell[1, 0]/self.cell[1, 1]*xx + self.cell[0, 0],
+            gfun=lambda xx: self.cell[1,0]/self.cell[1,1]*xx,
+            hfun=lambda xx: self.cell[1,0]/self.cell[1,1]*xx + self.cell[0,0],
         )[0]
     
         return integral_cpes
     
     def get_integral_pes_grid(self, temperature):
         """Integrate the function of the PES with finite differences."""
-        xx_grid, yy_grid, ee_grid, xye_points = self.get_meshgrid_surrogate()
-        vv_grid = np.exp(-(ee_grid-self.e_min)/(units.kB*temperature))
-        integral_cpes = np.average(vv_grid)*self.cell[0, 0]*self.cell[1, 1]
+        if self.es_grid is None:
+            self.get_meshgrid_surrogate()
+        vv_grid = np.exp(-(self.es_grid-self.e_min)/(units.kB*temperature))
+        integral_cpes = np.average(vv_grid)*self.cell[0,0]*self.cell[1,1]
     
         return integral_cpes
     
