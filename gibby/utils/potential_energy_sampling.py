@@ -14,23 +14,39 @@ from ase.thermochemistry import HarmonicThermo
 # GET 1X1 SLAB CELL
 # -------------------------------------------------------------------------------------
 
-def get_1x1_slab_cell(atoms, symprec=1e-7, primitive=True):
-    
+def get_1x1_slab_cell(atoms, symprec=1e-7, repetitions=None):
+    """Get the 1x1 cell of an ase.Atoms object by checking the translational
+    symmetries or by using the provided list of repetitions in x and y directions.
+
+    Args:
+        atoms (ase.Atoms): ase.Atoms object.
+        symprec (float, optional): precision for the calculation of symmetries
+        with ase.spacegroup.symmetrize.check_symmetry. Defaults to 1e-7.
+        repetitions (list, optional): list of repetitions in x and y directions
+        used to produce a NxN slab from a 1x1 slab. Defaults to None.
+
+    Returns:
+        ase.cell.Cell: cell reduced by the translational symmetries.
+    """
     from ase.spacegroup.symmetrize import check_symmetry
     from ase.cell import Cell
     
-    dataset = check_symmetry(atoms, symprec=symprec)
-    transl = dataset["translations"]
-    xx_vect = [
-        vv[0] for vv in transl
-        if abs(vv[0]) > symprec if abs(vv[1]) < symprec if abs(vv[2]) < symprec
-    ]
-    yy_vect = [
-        vv[1] for vv in transl
-        if abs(vv[0]) < symprec if abs(vv[1]) > symprec if abs(vv[2]) < symprec
-    ]
-    xx_fract = np.min(xx_vect) if len(xx_vect) > 0 else 1.
-    yy_fract = np.min(yy_vect) if len(yy_vect) > 0 else 1.
+    if repetitions is None:
+        dataset = check_symmetry(atoms, symprec=symprec)
+        transl = dataset["translations"]
+        xx_vect = [
+            vv[0] for vv in transl
+            if abs(vv[0]) > symprec if abs(vv[1]) < symprec if abs(vv[2]) < symprec
+        ]
+        yy_vect = [
+            vv[1] for vv in transl
+            if abs(vv[0]) < symprec if abs(vv[1]) > symprec if abs(vv[2]) < symprec
+        ]
+        xx_fract = np.min(xx_vect) if len(xx_vect) > 0 else 1.
+        yy_fract = np.min(yy_vect) if len(yy_vect) > 0 else 1.
+    else:
+        xx_fract = 1/repetitions[0]
+        yy_fract = 1/repetitions[1]
     
     return Cell(np.dot(atoms.cell, np.identity(3)*[xx_fract, yy_fract, 1]))
 
@@ -38,8 +54,21 @@ def get_1x1_slab_cell(atoms, symprec=1e-7, primitive=True):
 # GET MESHGRID
 # -------------------------------------------------------------------------------------
 
-def get_meshgrid(cell, height, zz_function=None, spacing=0.2):
+def get_meshgrid(cell, height, zz_function=None, spacing=0.5):
+    """Get a meshgrid of [x, y, z] points from an atoms.cell object and a grid spacing.
+    If zz_function is None, z is equal to height.
 
+    Args:
+        cell (ase.cell.Cell): cell of the atoms object.
+        height (float): height (z axis) of the adsorbate atoms.
+        zz_function (function, optional): function of x and y to use instead of the
+        adsorbate height. Defaults to None.
+        spacing (float, optional): spacing of the 2d grid of positions of the
+        adsorbates. Defaults to 0.50.
+
+    Returns:
+        list[numpy.ndarray]: list of meshgrid numpy arrays (x_grid, y_grid, z_grid).
+    """
     nx = int(np.ceil(cell.lengths()[0]/spacing))
     ny = int(np.ceil(cell.lengths()[1]/spacing))
     xr_vect = np.linspace(0, 1-1/nx, nx)
@@ -64,8 +93,21 @@ def get_meshgrid(cell, height, zz_function=None, spacing=0.2):
 # GET XYZ POINTS
 # -------------------------------------------------------------------------------------
 
-def get_xyz_points(cell, height, zz_function=None, spacing=0.2):
+def get_xyz_points(cell, height, zz_function=None, spacing=0.5):
+    """Get an array of [x, y, z] points from an atoms.cell object and a grid spacing.
+    If zz_function is None, z is equal to height.
 
+    Args:
+        cell (ase.cell.Cell): cell of the atoms object.
+        height (float): height (z axis) of the adsorbate atoms.
+        zz_function (function, optional): function of x and y to use instead of the
+        adsorbate height. Defaults to None.
+        spacing (float, optional): spacing of the 2d grid of positions of the
+        adsorbates. Defaults to 0.50.
+
+    Returns:
+        numpy.ndarray: array of [x, y, z] points.
+    """
     nx = int(np.ceil(cell.lengths()[0]/spacing))
     ny = int(np.ceil(cell.lengths()[1]/spacing))
     xr_vect = np.linspace(0, 1, nx+1)
@@ -83,11 +125,22 @@ def get_xyz_points(cell, height, zz_function=None, spacing=0.2):
     return xyz_points
 
 # -------------------------------------------------------------------------------------
-# EXTEND XYZ POINTS
+# EXTEND XYE POINTS
 # -------------------------------------------------------------------------------------
 
-def extend_xyz_points(xye_points, cell, border=1.):
+def extend_xye_points(xye_points, cell, border=1.):
+    """Extend the grid points to a border surrounding the atoms.cell object in x
+    and y axes.
 
+    Args:
+        xye_points (numpy.ndarray): [x, y, energy] points.
+        cell (ase.cell.Cell): cell of the atoms object.
+        border (float, optional): Border surrounding the atoms cell in which the
+        [x, y, energy] points are extended to. Defaults to 1 Angstrom.
+
+    Returns:
+        numpy.ndarray: array of [x, y, energy] points extended.
+    """
     xye_points_new = xye_points.copy()
     for ii in (-1, 0, +1):
         for jj in (-1, 0, +1):
@@ -126,6 +179,26 @@ def constrained_relaxation(
     kwargs_opt={},
     fmax=0.01,
 ):
+    """Perform a constrained relaxation. The x and y of the centre of mass 
+    (fix_com=True) or of the Nth atom of the adsorbate (index=N) are fixed.
+
+    Args:
+        slab (ase.Atoms): slab atoms.
+        ads (ase.Atoms): adsorbate atoms.
+        position (numpy.ndarray, list): position (x, y, z) of the adsorbate.
+        calc (ase.calculators.Calculator): ase calculator.
+        fix_com (bool, optional): fix centre of mass. Defaults to False.
+        index (int, optional): index of the adsorbate to fix. Defaults to 0.
+        optimizer (ase.optimize.Optimizer, optional): optimizer for constrained 
+        relaxation. Defaults to BFGS.
+        kwargs_opt (dict, optional): dictionary of options for the optimizer.
+        Defaults to {}.
+        fmax (float, optional): maximum forces for convergence of constrained 
+        relaxation. Defaults to 0.01.
+
+    Returns:
+        ase.Atoms: slab + adsorbate atoms relaxed.
+    """
     
     slab_new = slab.copy()
     ads_new = ads.copy()
@@ -161,28 +234,81 @@ class PotentialEnergySampling:
         height,
         e_min,
         spacing=0.20,
-        spacing_surr=0.05,
+        spacing_surrogate=0.05,
         reduce_cell=True,
+        repetitions=None,
         fix_com=False,
         index=0,
         fmax=0.01,
+        optimizer=BFGS,
         kwargs_opt={},
         scipy_integral=False,
         name="pes",
     ):
+        """Class to do a potential energy sampling calculation with constrained
+        relaxations on a grid of positions (x, y). Used to evaluate the entropy
+        of adsorbates that can translate on a surface.
+
+        Args:
+            slab (ase.Atoms): ase.Atoms object of the slab.
+            ads (ase.Atoms): ase.Atoms object of the adsorbate.
+            calc (ase.calculators.Calculator): ase calculator.
+            height (float): inital height (z axis) of the adsorbate.
+            e_min (float): minimum energy of the slab + adsorbate structure (obtained,
+            e.g., from relaxation on different adsorption sites or from global 
+            optimization).
+            height (float, optional): height (z axis) of the adsorbate atoms (centre 
+            of mass if fix_com=True, position of index N of adsorbate otherwise).
+            If None, the height of the adsorbate in the atoms structure is used.
+            Defaults to None.
+            spacing (float, optional): spacing of the 2d grid of positions of the
+            adsorbates. Defaults to 0.50.
+            spacing_surrogate (float, optional): spacing of the 2d grid on which
+            the potential energy surface is evaluated. Used for integration 
+            (scipy_integral=False) and to produce the plots. Defaults to 0.10.
+            cell (ase.cell.Cell, optionsl): reduced cell used to create the grid of
+            positions for the constrained optimizations. Defaults to None.
+            reduce_cell (bool, optional): reduce the cell accounting for
+            translational symmetries (a 1x1 cell is obtained). Defaults to True.
+            repetitions (list, optional): list of repetitions in x and y directions
+            used to produce a NxN slab from a 1x1 slab. Defaults to None.
+            fix_com (bool, optional): fix centre of mass of the adsorbate in the
+            constrained optimizations instead of one atom. Defaults to False.
+            index (int, optional): index of the adsorbate to fix in the
+            constrained optimizations. Defaults to 0.
+            fmax (float, optional): maximum forces for convergence of constrained 
+            relaxation. Defaults to 0.01.
+            optimizer (ase.optimizer.Optimizer, optional): optimizer for constrained 
+            relaxation. Defaults to BFGS.
+            kwargs_opt (dict, optional): dictionary of options for the optimizer.
+            Defaults to {}.
+            scipy_integral (bool, optional): use scipy.integrate.dblquad to do the
+            integration of the function of the potential energy surface for the
+            calculation of the entropy. Defaults to False.
+            name (str, optional): name of the simulation, a directory with this
+            name is produce to store the cache. Defaults to "pes".
+        """
         self.slab = slab.copy()
         self.ads = ads.copy()
         self.calc = calc
         self.height = height
         self.e_min = e_min
         self.spacing = spacing
-        self.spacing_surr = spacing_surr
+        self.spacing_surrogate = spacing_surrogate
         self.reduce_cell = reduce_cell
+        self.repetitions = repetitions
         self.fix_com = fix_com
         self.index = index
         self.fmax = fmax
+        self.optimizer = optimizer
         self.kwargs_opt = kwargs_opt
         self.scipy_integral = scipy_integral
+        
+        if fix_com is True:
+            ads_pos = self.ads.get_center_of_mass()
+        else:
+            ads_pos = self.ads[index].position
+        self.ads.translate(-ads_pos)
         
         self.cache = get_json_cache(name)
 
@@ -196,14 +322,13 @@ class PotentialEnergySampling:
         if len([cc for cc in self.slab.constraints if isinstance(cc, FixAtoms)]) == 0:
             raise Exception("Atoms must contain FixAtoms constraint.")
     
-        # Set the x axis parallel to [1,0,0]
-        angle = np.arctan(self.slab.cell[0,1]/self.slab.cell[0,0])*180/np.pi
-        self.slab.rotate(-angle, 'z', rotate_cell=True)
-
         # Reduced cell.
         self.cell = self.slab.cell
         if self.reduce_cell is True:
-            self.cell = get_1x1_slab_cell(atoms=self.slab)
+            self.cell = get_1x1_slab_cell(
+                atoms=self.slab,
+                repetitions=self.repetitions,
+            )
 
         # Get grid of points from spacing.
         xyz_points = get_xyz_points(
@@ -227,6 +352,7 @@ class PotentialEnergySampling:
                     calc=self.calc,
                     fix_com=self.fix_com,
                     index=self.index,
+                    optimizer=self.optimizer,
                     kwargs_opt=self.kwargs_opt,
                 )
                 xye_points[ii, 2] = slab_new.get_potential_energy()
@@ -235,7 +361,7 @@ class PotentialEnergySampling:
 
         self.xyz_points = xyz_points
         self.xye_points = xye_points
-        self.xye_points_ext = extend_xyz_points(
+        self.xye_points_ext = extend_xye_points(
             xye_points=xye_points,
             cell=self.cell,
         )
@@ -272,7 +398,7 @@ class PotentialEnergySampling:
         self.xs_grid, self.ys_grid, self.es_grid = get_meshgrid(
             cell=self.cell,
             height=self.height,
-            spacing=self.spacing_surr,
+            spacing=self.spacing_surrogate,
             zz_function=self.e_func,
         )
     
@@ -301,6 +427,10 @@ class PotentialEnergySampling:
     def get_integral_pes_scipy(self, temperature):
         """Integrate the function of the PES with scipy."""
         from scipy.integrate import dblquad
+        if np.isclose(self.cell[0], [1,0,0]) is False:
+            raise Exception(
+                "scipy_integral=True works only if cell[0] is equal to [1,0,0]."
+            )
         func = lambda yy, xx: (
             np.exp(-(self.e_func(yy, xx)-self.e_min)/(units.kB*temperature))
         )
@@ -338,6 +468,7 @@ class PotentialEnergySampling:
         return entropy
 
     def get_ads_positions(self):
+        """Return an atoms structure with the grid of positions (added X atoms)."""
         from ase import Atoms
         slab_new = self.slab.copy()
         for position in self.xyz_points:
@@ -358,6 +489,18 @@ class PESThermo(HarmonicThermo):
         vib_energies,
         potentialenergy=0.,
     ):
+        """Class for calculating thermodynamic properties in the approximation
+        that all degrees of freedom are treated harmonically except for two, which
+        are evaluated with the potential energy sampling method. Used for adsorbates
+        which can translate on the slab.
+
+        Args:
+            pes (PotentialEnergySampling): _description_
+            vib_energies (list): list of vibrational energies (in eV), obtained
+            with, e.g., ase.vibrations.Vibrations class.
+            potentialenergy (float, optional): the potential energy (in eV),
+            obtained, e.g., from atoms.get_potential_energy. Defaults to 0.
+        """
         self.pes = pes
         # Remove the 2 lowest vibrational energies.
         super().__init__(
