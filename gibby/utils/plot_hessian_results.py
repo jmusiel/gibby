@@ -43,6 +43,18 @@ def plot_corrections_histogram(
     fig.patch.set_facecolor('white')
     return fig
 
+def _get_value_metadata(value_name):
+    if value_name == "eigenvalues":
+        get_values = get_eigenvalues
+        units = "$eV/\AA^2$"
+    elif value_name == "total":
+        get_values = get_total_corrections
+        units = "$eV$"
+    elif value_name == "freq":
+        get_values = get_frequencies
+        units = "$cm^{-1}$"
+    return get_values, units
+
 
 def plot_hexbin_corrections(
         pred_dataframes_list,
@@ -51,6 +63,7 @@ def plot_hexbin_corrections(
         value_name: str = "eigenvalues",
         title_name=None, 
         size=16,
+        include_mae=True,
     ):
     """
     Plot a hexbin plot of the corrections from a dataframe containing corrections.
@@ -62,23 +75,22 @@ def plot_hexbin_corrections(
     Returns:
         None
     """
+    get_values, units = _get_value_metadata(value_name)
+
     if value_name == "eigenvalues":
-        get_values = get_eigenvalues
-        xlabel = "eigenvalues ($eV/\AA^2$)"
-        ylabel = "DFT eigenvalues ($eV/\AA^2$)"
+        xlabel = f"eigenvalues ({units})"
+        ylabel = f"DFT eigenvalues ({units})"
     elif value_name == "total":
-        get_values = get_total_corrections
-        xlabel = "total correction [eV]"
-        ylabel = "DFT total correction [eV]"
+        xlabel = f"total correction ({units})"
+        ylabel = f"DFT total correction ({units})"
     elif value_name == "freq":
-        get_values = get_frequencies
         import matplotlib.ticker as ticker
         @ticker.FuncFormatter
         def major_formatter(x, pos):
             label = f"{-x:.0f}i" if x < 0 else f"{x:.0f}"
             return label
-        xlabel = "largest imaginary frequency ($cm^{-1}$)"
-        ylabel = "DFT corresponding frequency ($cm^{-1}$)"
+        xlabel = f"largest imaginary frequency ({units})"
+        ylabel = f"DFT corresponding frequency ({units})"
 
     fig_cols = 4
     if len(pred_dataframes_list) < 4:
@@ -89,18 +101,19 @@ def plot_hexbin_corrections(
     if title_name is not None:
         fig.suptitle(title_name, fontsize=size)
 
-    min_max = (np.inf, -np.inf)
     axs = axs.flatten()
     for i, df in enumerate(pred_dataframes_list):
         i_name = "ML"
-        if pred_dataframes_list is not None:
+        if pred_dataframes_names is not None:
             i_name = pred_dataframes_names[i]
 
         ml_values = get_values(df)
         vasp_values = get_values(true_dataframe)
 
+        min_max = (np.inf, -np.inf)
         min_max = (min(min(ml_values), min_max[0]), max(max(ml_values), min_max[1]))
         min_max = (min(min(vasp_values), min_max[0]), max(max(vasp_values), min_max[1]))
+        min_max = (min_max[0]-(np.max(np.abs(min_max))*0.1), min_max[1]+(np.max(np.abs(min_max))*0.1))
 
         hexbin0 = axs[i].hexbin(ml_values, vasp_values, gridsize=100, cmap='viridis', vmin=1, vmax=5, mincnt=1)
         axs[i].set_xlabel(f"{i_name} {xlabel}", fontsize=size)
@@ -112,6 +125,11 @@ def plot_hexbin_corrections(
         if value_name == "freq":
             axs[i].xaxis.set_major_formatter(major_formatter)
             axs[i].yaxis.set_major_formatter(major_formatter)
+        
+        mae = np.mean(np.abs(ml_values - vasp_values))
+        # rmae = np.mean([np.abs((x-y)/y) for x, y in zip(ml_values, vasp_values)])# relative mean error
+        if include_mae:
+            axs[i].text(0.02, 0.98, f"MAE: {mae:.3f} {units}", transform=axs[i].transAxes, verticalalignment='top')
 
     # Create a formatter function that formats numbers as integers
     formatter = FuncFormatter(lambda x, pos: f"{x:.0f}")
@@ -119,7 +137,9 @@ def plot_hexbin_corrections(
     cbar = fig.colorbar(hexbin0, ax=axs.ravel().tolist(), format=formatter)
     # set colorbar ticks fontsize
     cbar.ax.tick_params(labelsize=size)
-    # cbar.set_ticks([1, 2, 3, 4, 5])
+    cbar.set_ticks([1, 2, 3, 4, 5])
+
+    fig.patch.set_facecolor('white')
 
     return fig
 
@@ -127,11 +147,11 @@ def get_eigenvalues(given_df):
     eigen_values_list = [sorted(eig) for eig in given_df["eigenvalues"].values]
     result = np.concatenate(eigen_values_list)
     result = np.real(result)
-    return result
+    return np.array(result)
 
 def get_total_corrections(given_df):
     result = given_df["total"].values
-    return result
+    return np.array(result)
 
 def get_frequencies(given_df):
     unsorted_freq_list = [freq for freq in given_df["freq"].values]
@@ -147,4 +167,43 @@ def get_frequencies(given_df):
         imag = np.imag(leftmost)
         value = real - imag
         values_list.append(value)
-    return values_list
+    return np.array(values_list)
+
+
+def plot_mae_vs_key(
+        pred_dataframes_list,
+        true_dataframe,
+        pred_dataframes_names: list=None,
+        value_name: str = "eigenvalues",
+        title_name=None, 
+        xlabel: str = None,
+        size=16,
+    ):
+
+    get_values, units = _get_value_metadata(value_name)
+
+    if value_name == "eigenvalues":
+        ylabel = f"eigenvalues MAE ({units})"
+    elif value_name == "total":
+        ylabel = f"total correction MAE ({units})"
+    elif value_name == "freq":
+        ylabel = f"largest imaginary frequency MAE ({units})"
+    
+    vasp_values = get_values(true_dataframe)
+    mae_list = []
+    for pred_df in pred_dataframes_list:
+        ml_values = get_values(pred_df)
+        mae = np.mean(np.abs(ml_values - vasp_values))
+        mae_list.append(mae)
+
+
+    fig, axs = plt.subplots(1,1, figsize=(6,6))
+    axs.plot(pred_dataframes_names, mae_list, marker='o', color='tab:blue')
+    axs.set_xlabel(xlabel, fontsize=size)
+    axs.set_ylabel(ylabel, fontsize=size)
+
+    if title_name:
+        axs.set_title(title_name, fontsize=size)
+
+    fig.patch.set_facecolor('white')
+    return fig

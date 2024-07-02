@@ -58,7 +58,8 @@ def hessian_to_corrections(
             deltah = thermo._vibrational_energy_contribution(temperature=temperature)
             eigvalues, eigvectors = np.linalg.eig(hessian)
 
-            results_dict["random_id"].append(row["random_id"])
+            if "random_id" in row:
+                results_dict["random_id"].append(row["random_id"])
             results_dict["ts"].append(ts)
             results_dict["zpe"].append(zpe)
             results_dict["deltah"].append(deltah)
