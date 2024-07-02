@@ -4,6 +4,7 @@
 
 import numpy as np
 from ase import units
+from ase.constraints import FixAtoms
 from ase.parallel import world
 from ase.utils.filecache import get_json_cache
 from ase.optimize import BFGS
@@ -41,8 +42,8 @@ def get_meshgrid(cell, height, zz_function=None, spacing=0.2):
 
     nx = int(np.ceil(cell.lengths()[0]/spacing))
     ny = int(np.ceil(cell.lengths()[1]/spacing))
-    xr_vect = np.linspace(0, 1, nx+1)
-    yr_vect = np.linspace(0, 1, ny+1)
+    xr_vect = np.linspace(0, 1-1/nx, nx)
+    yr_vect = np.linspace(0, 1-1/ny, ny)
     zr = height/cell.lengths()[2]
 
     xx_grid = np.zeros([len(xr_vect), len(yr_vect)])
@@ -80,6 +81,35 @@ def get_xyz_points(cell, height, zz_function=None, spacing=0.2):
             xyz_points[ii*len(yr_vect)+jj] = xx, yy, zz
 
     return xyz_points
+
+# -------------------------------------------------------------------------------------
+# EXTEND XYZ POINTS
+# -------------------------------------------------------------------------------------
+
+def extend_xyz_points(xye_points, cell, border=1.):
+
+    xye_points_new = xye_points.copy()
+    for ii in (-1, 0, +1):
+        for jj in (-1, 0, +1):
+            if (ii, jj) == (0, 0):
+                continue
+            translation = np.hstack([ii*cell[0,:2]+jj*cell[1,:2], [0.]])
+            xye_points_copy = xye_points.copy()
+            xye_points_copy += translation
+            xye_points_new = np.vstack([xye_points_new, xye_points_copy])
+
+    del_indices = []
+    for ii, (xx, yy, ee) in enumerate(xye_points_new):
+        if (
+            yy < -border or
+            yy > cell[1, 1] + border or
+            xx < cell[1,0]/cell[1,1]*yy - border or
+            xx > cell[1,0]/cell[1,1]*yy + cell[0,0] + border
+        ):
+            del_indices += [ii]
+    xye_points_new = np.delete(xye_points_new, del_indices, axis=0)
+    
+    return xye_points_new
 
 # -------------------------------------------------------------------------------------
 # CONSTRAINED RELAXATION
@@ -163,6 +193,9 @@ class PotentialEnergySampling:
     def run(self):
         """Run Potential Energy Sampling method."""
     
+        if len([cc for cc in self.slab.constraints if isinstance(cc, FixAtoms)]) == 0:
+            raise Exception("Atoms must contain FixAtoms constraint.")
+    
         # Set the x axis parallel to [1,0,0]
         angle = np.arctan(self.slab.cell[0,1]/self.slab.cell[0,0])*180/np.pi
         self.slab.rotate(-angle, 'z', rotate_cell=True)
@@ -196,11 +229,16 @@ class PotentialEnergySampling:
                     index=self.index,
                     kwargs_opt=self.kwargs_opt,
                 )
-                xye_points[ii,2] = slab_new.get_potential_energy()
+                xye_points[ii, 2] = slab_new.get_potential_energy()
                 if world.rank == 0:
                     handle.save(xye_points[ii])
 
+        self.xyz_points = xyz_points
         self.xye_points = xye_points
+        self.xye_points_ext = extend_xyz_points(
+            xye_points=xye_points,
+            cell=self.cell,
+        )
         self.es_grid = None
 
         return xye_points
@@ -214,20 +252,20 @@ class PotentialEnergySampling:
         else:
             self.cache.clear()
 
-    def surrogate_pes(self, model=None):
+    def surrogate_pes(self, sklearn_model=None):
         """Train the surrogate model for the PES."""
-        if model is None:
+        if sklearn_model is None:
             from scipy.interpolate import griddata
             self.e_func = lambda xx, yy: griddata(
-                points=self.xye_points[:,:2],
-                values=self.xye_points[:,2],
+                points=self.xye_points_ext[:,:2],
+                values=self.xye_points_ext[:,2],
                 xi=[xx, yy],
                 method='cubic',
                 rescale=False,
             )
         else:
-            model.fit(self.xye_points[:,:2], self.xye_points[:,2])
-            self.e_func = lambda xx, yy: model.predict([[xx, yy]])[0]
+            sklearn_model.fit(self.xye_points_ext[:,:2], self.xye_points_ext[:,2])
+            self.e_func = lambda xx, yy: sklearn_model.predict([[xx, yy]])[0]
     
     def get_meshgrid_surrogate(self):
         """Get mesh grid of PES from surrogate model."""
@@ -298,6 +336,15 @@ class PotentialEnergySampling:
         entropy = units.kB*np.log(part_fun)
 
         return entropy
+
+    def get_ads_positions(self):
+        from ase import Atoms
+        slab_new = self.slab.copy()
+        for position in self.xyz_points:
+            ads_new = Atoms("X")
+            ads_new.translate(position)
+            slab_new += ads_new
+        return slab_new
 
 # -------------------------------------------------------------------------------------
 # PES THERMO

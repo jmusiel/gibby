@@ -28,10 +28,13 @@ def main():
     temperature = 300 # [K]
     show_plot = False
     save_plot = True
-    model = None
+    sklearn_model = None
 
     from ase.build import fcc111
+    from ase.constraints import FixAtoms
     slab = fcc111('Pt', size=(2, 2, 4), vacuum=6, a=3.92)
+    indices = [aa.index for aa in slab if aa.position[2] < 9.]
+    slab.constraints = FixAtoms(indices=indices)
     
     #from ase import Atoms
     #ads = Atoms("O")
@@ -64,11 +67,12 @@ def main():
     # Run vibrations.
     indices = [aa.index+len(slab) for aa in ads_opt]
     vib = Vibrations(atoms=slab_opt, indices=indices, delta=0.01, nfree=2)
+    vib.clean(empty_files=True)
     vib.run()
     
     # Harmonic approximation thermo.
     thermo = HarmonicThermo(vib_energies=vib.get_energies())
-    entropy = thermo.get_entropy(temperature=temperature, verbose=False)
+    entropy = thermo.get_entropy(temperature=temperature, verbose=True)
     print(f"HarmonicThermo entropy: {entropy*1e3:+7.4f} [meV/K]")
     
     # Potential Energy Sampling.
@@ -89,7 +93,7 @@ def main():
     )
     pes.clean(empty_files=True)
     pes.run()
-    pes.surrogate_pes(model=model)
+    pes.surrogate_pes(sklearn_model=sklearn_model)
     entropy = pes.get_entropy_pes(temperature=temperature)
     print(f"PotentialEnergySampling entropy: {entropy*1e3:+7.4f} [meV/K]")
     
@@ -104,7 +108,7 @@ def main():
         vib_energies=vib.get_energies(),
         pes=pes,
     )
-    entropy = thermo.get_entropy(temperature=temperature)
+    entropy = thermo.get_entropy(temperature=temperature, verbose=True)
     print(f"PESThermo entropy: {entropy*1e3:+7.4f} [meV/K]")
     
 # -------------------------------------------------------------------------------------
