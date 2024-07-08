@@ -18,7 +18,7 @@ def main():
 
     height = 14.5
     spacing = 0.50
-    spacing_surr = 0.05
+    spacing_surrogate = 0.05
     reduce_cell = True
     fix_com = False
     index = 0
@@ -83,7 +83,7 @@ def main():
         height=height,
         e_min=e_min,
         spacing=spacing,
-        spacing_surr=spacing_surr,
+        spacing_surrogate=spacing_surrogate,
         reduce_cell=reduce_cell,
         fix_com=fix_com,
         index=index,
