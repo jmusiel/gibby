@@ -48,6 +48,8 @@ from ocpmodels.modules.scaling.compat import load_scales_compat
 
 from ocpmodels.models.painn.utils import get_edge_id, repeat_blocks
 
+from gibby.oc_models.compute_hessian_autograd import compute_hessian_autograd
+
 
 @registry.register_model("painn_hessian")
 class PaiNN_Hessian(BaseModel):
@@ -649,30 +651,3 @@ class GatedEquivariantBlock(nn.Module):
         x = self.act(x)
         return x, v
 
-def compute_hessian_autograd(
-    forces: torch.Tensor,
-    positions: torch.Tensor,
-    hessian_method="loop",
-)-> torch.Tensor:
-        
-    if hessian_method=="loop":
-        hessian=[]
-        for grad_elem in forces.view(-1):
-            hess_row = -1 * torch.autograd.grad(
-                outputs = [grad_elem], 
-                inputs = [positions], 
-                grad_outputs=torch.ones_like(grad_elem),
-                retain_graph=True, 
-                create_graph=False,
-                allow_unused=False,
-            )[0]
-            hess_row =hess_row.detach() #this makes it very slow? but needs less memory
-            if hess_row is None:
-                hessian.append(torch.zeros_like(positions))
-            else:
-                hessian.append(hess_row)
-        hessian = torch.stack(hessian)
-    else:
-        raise ValueError("For the hessian_method please select loop!")
-        
-    return hessian
