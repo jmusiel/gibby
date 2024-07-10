@@ -115,12 +115,21 @@ def plot_hexbin_corrections(
         min_max = (min(min(vasp_values), min_max[0]), max(max(vasp_values), min_max[1]))
         min_max = (min_max[0]-(np.max(np.abs(min_max))*0.1), min_max[1]+(np.max(np.abs(min_max))*0.1))
 
-        hexbin0 = axs[i].hexbin(ml_values, vasp_values, gridsize=100, cmap='viridis', vmin=1, vmax=5, mincnt=1)
+        hexbin0 = axs[i].hexbin(
+            ml_values,
+            vasp_values,
+            gridsize=100,
+            cmap='viridis',
+            vmin=1, 
+            vmax=50, 
+            mincnt=1, 
+            extent=[min_max[0], min_max[1], min_max[0], min_max[1]],
+        )
         axs[i].set_xlabel(f"{i_name} {xlabel}", fontsize=size)
         axs[i].set_ylabel(ylabel, fontsize=size)
         axs[i].set_aspect('equal', 'box')
-        axs[i].set_xlim(min_max)
-        axs[i].set_ylim(min_max)
+        # axs[i].set_xlim(min_max)
+        # axs[i].set_ylim(min_max)
 
         if value_name == "freq":
             axs[i].xaxis.set_major_formatter(major_formatter)
