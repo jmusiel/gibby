@@ -171,7 +171,7 @@ def main(config):
             wandb.init(
                 config=config,
                 name=filepath.split('/')[-1],
-                project="ts_opt_sella",
+                project=f"{config['output_name']}_sella",
                 group=timestamp_str,
             )
 
