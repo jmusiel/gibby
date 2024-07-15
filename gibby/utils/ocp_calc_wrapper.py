@@ -155,6 +155,6 @@ def get_config_override(checkpoint_path: str, scale_file_path: str):
     else:
         config_override = {}
 
-    config_override = recursive_update(config_override, {"optim": {"scheduler": None}})
+    config_override = recursive_update(config_override, {"optim": {"scheduler": "Null"}})
 
     return config_override
