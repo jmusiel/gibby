@@ -19,7 +19,7 @@ class suppress_stdout:
         sys.stdout = self._original_stdout
 
 
-def get_hessian(atoms, run_dir=None):
+def get_hessian(atoms, run_dir=None, hessian_delta=0.01):
     if run_dir is not None:
         cwd = os.getcwd()
         os.chdir(run_dir)
@@ -27,6 +27,7 @@ def get_hessian(atoms, run_dir=None):
     vib = Vibrations(
         atoms,
         indices=[i for i in range(len(atoms)) if not i in atoms.constraints[0].index],
+        delta=hessian_delta,
     )
     with suppress_stdout():
         vib.run()

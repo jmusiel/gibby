@@ -41,7 +41,7 @@ def get_parser():
     parser.add_argument(
         "--output_dir",
         type=str, 
-        default="/home/jovyan/working/repos/gibby/gibby/hessians_dataframes_predict_output",
+        default="/home/jovyan/working/repos/launch/jlaunch/hessian_smoothness/predict_hessians_ase/hessians_dataframes_predict_output",
     )
     parser.add_argument(
         "--checkpoint_path",
@@ -96,6 +96,11 @@ def get_parser():
         "--use_analytical_hessian",
         type=str,
         default="n",
+    )
+    parser.add_argument(
+        "--hessian_delta",
+        type=float,
+        default=0.01,
     )
     return parser
 
@@ -172,7 +177,14 @@ def main(config):
                 calc_name = f"{config['checkpoint_model_class_override']}_{calc_name}"
             series_list = []
             for index, row in tqdm(df.iterrows(), total=len(df), desc=f"Iterating over {pickle_name}.pkl, for model: {calc_name} (analytical? {config['use_analytical_hessian'] == 'y'})"):
-                new_data = series_list.append(add_hessian_columns(row, calc, calc_name, analytical=config['use_analytical_hessian'] == 'y'))
+                new_data = series_list.append(
+                    add_hessian_columns(
+                        row, 
+                        calc, 
+                        calc_name, 
+                        analytical=config['use_analytical_hessian'] == 'y', 
+                        hessian_delta=config['hessian_delta'])
+                )
             new_data = pd.concat(series_list, axis=1).T
             cols_to_drop = df.columns.intersection(new_data.columns)
             df = df.drop(columns=cols_to_drop)
@@ -180,7 +192,13 @@ def main(config):
         
         df.to_pickle(os.path.join(output_dir, new_pickle_name + ".pkl"))
                 
-def add_hessian_columns(row, calc, calc_name, analytical=False):
+def add_hessian_columns(
+        row, 
+        calc, 
+        calc_name, 
+        analytical=False, 
+        hessian_delta=0.01
+    ):
     return_list = []
     column_names = []
     keys = [
@@ -200,7 +218,7 @@ def add_hessian_columns(row, calc, calc_name, analytical=False):
             if analytical: # get analytical hessian
                 hessian = get_analytical_hessian(atoms)
             else: # get numerical hessian
-                hessian = get_hessian(atoms)
+                hessian = get_hessian(atoms, hessian_delta=hessian_delta)
             return_list.append(hessian)
     else:
         for key in keys:
