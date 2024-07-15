@@ -64,6 +64,8 @@ def plot_hexbin_corrections(
         title_name=None, 
         size=16,
         include_mae=True,
+        color_max=5,
+        cbar_ticks=[1, 2, 3, 4, 5],
     ):
     """
     Plot a hexbin plot of the corrections from a dataframe containing corrections.
@@ -121,7 +123,7 @@ def plot_hexbin_corrections(
             gridsize=100,
             cmap='viridis',
             vmin=1, 
-            vmax=50, 
+            vmax=color_max, 
             mincnt=1, 
             extent=[min_max[0], min_max[1], min_max[0], min_max[1]],
         )
@@ -146,7 +148,7 @@ def plot_hexbin_corrections(
     cbar = fig.colorbar(hexbin0, ax=axs.ravel().tolist(), format=formatter)
     # set colorbar ticks fontsize
     cbar.ax.tick_params(labelsize=size)
-    cbar.set_ticks([1, 2, 3, 4, 5])
+    cbar.set_ticks(cbar_ticks)
 
     fig.patch.set_facecolor('white')
 
@@ -196,7 +198,7 @@ def plot_mae_vs_key(
     elif value_name == "total":
         ylabel = f"total correction MAE ({units})"
     elif value_name == "freq":
-        ylabel = f"largest imaginary frequency MAE ({units})"
+        ylabel = f"largest imaginary freq. MAE ({units})"
     
     vasp_values = get_values(true_dataframe)
     mae_list = []
