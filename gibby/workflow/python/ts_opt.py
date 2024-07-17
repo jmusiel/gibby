@@ -228,7 +228,7 @@ def main(config):
             sigma_dec=config['sigma_dec'],  # Trust radius decrease factor
         )
         if config['wandb'] == 'y':
-            dyn.attach(wandb_callback_func, interval=1, atoms=dyn.atoms, rho=dyn.rho, step=dyn.nsteps)
+            dyn.attach(wandb_callback_func, interval=1, dyn=dyn, initial_energy=ts_atoms.get_potential_energy())
         try:
             dyn.run(0.01, config['nsteps'])
         except Exception as e:
@@ -266,12 +266,13 @@ def main(config):
         df = pd.DataFrame(results_data)
         df.to_pickle(os.path.join(config['output_dir'], f"{config['output_name']}.pkl"))
 
-def wandb_callback_func(atoms, rho, step):
+def wandb_callback_func(dyn, initial_energy):
     log_dict = {
-        "fmax": get_fmax(atoms.get_forces()),
-        "energy": atoms.get_potential_energy(),
-        "i": step,
-        "rho": rho,
+        "fmax": get_fmax(dyn.atoms.get_forces()),
+        "energy": dyn.atoms.get_potential_energy(),
+        "i": dyn.nsteps,
+        "rho": dyn.rho,
+        "relative_energy": initial_energy - dyn.atoms.get_potential_energy(),
     }
     wandb.log(log_dict)
     
