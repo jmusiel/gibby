@@ -103,8 +103,14 @@ def plot_hexbin_corrections(
     if title_name is not None:
         fig.suptitle(title_name, fontsize=size)
 
-    axs = axs.flatten()
+    if type(axs) is np.ndarray:
+        axs = axs.flatten()
     for i, df in enumerate(pred_dataframes_list):
+        if type(axs) is np.ndarray:
+            ax = axs[i]
+        else:
+            ax = axs
+
         i_name = "ML"
         if pred_dataframes_names is not None:
             i_name = pred_dataframes_names[i]
@@ -117,7 +123,7 @@ def plot_hexbin_corrections(
         min_max = (min(min(vasp_values), min_max[0]), max(max(vasp_values), min_max[1]))
         min_max = (min_max[0]-(np.max(np.abs(min_max))*0.1), min_max[1]+(np.max(np.abs(min_max))*0.1))
 
-        hexbin0 = axs[i].hexbin(
+        hexbin0 = ax.hexbin(
             ml_values,
             vasp_values,
             gridsize=100,
@@ -127,32 +133,32 @@ def plot_hexbin_corrections(
             mincnt=1, 
             extent=[min_max[0], min_max[1], min_max[0], min_max[1]],
         )
-        axs[i].set_xlabel(f"{i_name} {xlabel}", fontsize=size)
-        axs[i].set_ylabel(ylabel, fontsize=size)
-        axs[i].set_aspect('equal', 'box')
-        # axs[i].set_xlim(min_max)
-        # axs[i].set_ylim(min_max)
+        ax.set_xlabel(f"{i_name} {xlabel}", fontsize=size)
+        ax.set_ylabel(ylabel, fontsize=size)
+        ax.set_aspect('equal', 'box')
+        # ax.set_xlim(min_max)
+        # ax.set_ylim(min_max)
 
         if value_name == "freq":
-            axs[i].xaxis.set_major_formatter(major_formatter)
-            axs[i].yaxis.set_major_formatter(major_formatter)
+            ax.xaxis.set_major_formatter(major_formatter)
+            ax.yaxis.set_major_formatter(major_formatter)
         
         mae = np.mean(np.abs(ml_values - vasp_values))
         # rmae = np.mean([np.abs((x-y)/y) for x, y in zip(ml_values, vasp_values)])# relative mean error
         if include_mae:
-            axs[i].text(0.02, 0.98, f"MAE: {mae:.3f} {units}", transform=axs[i].transAxes, verticalalignment='top')
+            ax.text(0.02, 0.98, f"MAE: {mae:.3f} {units}", transform=ax.transAxes, verticalalignment='top')
 
     # Create a formatter function that formats numbers as integers
     formatter = FuncFormatter(lambda x, pos: f"{x:.0f}")
     # add shared colorbar
-    cbar = fig.colorbar(hexbin0, ax=axs.ravel().tolist(), format=formatter)
+    cbar = fig.colorbar(hexbin0, ax=axs, format=formatter)
     # set colorbar ticks fontsize
     cbar.ax.tick_params(labelsize=size)
     cbar.set_ticks(cbar_ticks)
 
     fig.patch.set_facecolor('white')
 
-    return fig
+    return fig, axs
 
 def get_eigenvalues(given_df):
     eigen_values_list = [sorted(eig) for eig in given_df["eigenvalues"].values]
