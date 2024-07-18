@@ -96,7 +96,7 @@ def get_parser():
     parser.add_argument(
         "--gamma",
         type=float, 
-        default=0.1,
+        default=0,
         help="Convergence criterion for iterative diagonalization"
     )
     parser.add_argument(
@@ -143,6 +143,7 @@ def main(config):
         "name": [],
         "neb_list": [],
         "converged": [],
+        'barrier': [],
         "NEB_barrier_ML_energy": [],
         "NEB_barrier_ML_forces": [],
         "NEB_barrier_ML_fmax": [],
@@ -174,20 +175,32 @@ def main(config):
     else:
         calc = EMT()
 
-    for filepath in tqdm(neb_files_list):
+    for j, filepath in tqdm(enumerate(neb_files_list), total=len(neb_files_list)):
+
         if config["wandb"] == 'y':
             wandb.init(
                 config=config,
                 name=filepath.split('/')[-1],
                 project=f"ts_opt_sella",
-                group=timestamp_str,
+                group=f"{timestamp_str} {config['output_name']}",
                 notes=f"{config['output_name']}\ntimestamp group:{timestamp_str}",
             )
 
         neb_list = []
         neb_traj = read(filepath, index='-10:')
         max_neb_energy = -np.inf
-        for i, atoms in enumerate(neb_traj[1:-1]):
+        for atoms in [neb_traj[0], neb_traj[-1]]:
+            atoms_copy = atoms.copy()
+            atoms_copy.calc = calc
+            max_neb_energy = max(max_neb_energy, atoms_copy.get_potential_energy())
+        max_neb_forces = None
+        max_neb_fmax = None
+        ts_atoms = None
+        index = None
+        ts_opt_energy = None
+        ts_opt_forces = None
+        ts_opt_fmax = None
+        for i, atoms in enumerate(neb_traj):
             neb_list.append(atoms) # add to neb_list the DFT singlepoint results
             atoms_copy = atoms.copy()
             atoms_copy.calc = calc
@@ -203,58 +216,65 @@ def main(config):
                 max_neb_fmax = get_fmax(max_neb_forces)
                 ts_atoms = atoms_copy
                 index = i
-        print(f"ML calc max energy: {max_neb_energy} index {index}, fmax: {get_fmax(ts_atoms.get_forces())}")
-        ts_atoms.calc = calc
+        print(f"ML calc max energy: {max_neb_energy} index {index}, fmax: {max_neb_fmax}")
+        barrier = False
+        if ts_atoms is not None:
+            barrier = True
+            ts_atoms.calc = calc
 
-        cons = Constraints(ts_atoms)
-        for atom in ts_atoms:
-            if atom.index in ts_atoms.constraints[0].index:
-                cons.fix_translation(atom.index)
+            cons = Constraints(ts_atoms)
+            for atom in ts_atoms:
+                if atom.index in ts_atoms.constraints[0].index:
+                    cons.fix_translation(atom.index)
 
-        dyn = Sella(
-            ts_atoms,
-            constraints=cons,
-            trajectory=None,
-            hessian_function=None,
-            eig=True, # saddlepoint setting: True, relaxation: False
-            order=1, # saddlepoint setting: 1, relaxation: 0
-            method=config['method'], # saddplepoint setting: 'prfo'
-            eta=config['eta'],        # Finite difference step size
-            gamma=config['gamma'],       # Convergence criterion for iterative diagonalization
-            delta0=config['delta0'],   # Initial trust radius
-            rho_inc=config['rho_inc'],   # Threshold for increasing trust radius
-            rho_dec=config['rho_dec'],     # Threshold for decreasing trust radius
-            sigma_inc=config['sigma_inc'],  # Trust radius increase factor
-            sigma_dec=config['sigma_dec'],  # Trust radius decrease factor
-        )
-        if config['wandb'] == 'y':
-            dyn.attach(wandb_callback_func, interval=1, dyn=dyn, initial_energy=ts_atoms.get_potential_energy())
-        try:
-            dyn.run(0.01, config['nsteps'])
-        except Exception as e:
-            print(e)
-        print(f"max energy {ts_atoms.get_potential_energy():.4f}, fmax: {get_fmax(ts_atoms.get_forces()):.4f}")
+            dyn = Sella(
+                ts_atoms,
+                constraints=cons,
+                trajectory=None,
+                hessian_function=None,
+                eig=True, # saddlepoint setting: True, relaxation: False
+                order=1, # saddlepoint setting: 1, relaxation: 0
+                method=config['method'], # saddplepoint setting: 'prfo'
+                eta=config['eta'],        # Finite difference step size
+                gamma=config['gamma'],       # Convergence criterion for iterative diagonalization
+                delta0=config['delta0'],   # Initial trust radius
+                rho_inc=config['rho_inc'],   # Threshold for increasing trust radius
+                rho_dec=config['rho_dec'],     # Threshold for decreasing trust radius
+                sigma_inc=config['sigma_inc'],  # Trust radius increase factor
+                sigma_dec=config['sigma_dec'],  # Trust radius decrease factor
+            )
+            if config['wandb'] == 'y':
+                dyn.attach(wandb_callback_func, interval=1, dyn=dyn, initial_energy=ts_atoms.get_potential_energy())
+            try:
+                dyn.run(0.01, config['nsteps'])
+            except Exception as e:
+                print(e)
+            print(f"max energy {ts_atoms.get_potential_energy():.4f}, fmax: {get_fmax(ts_atoms.get_forces()):.4f}")
 
-        ts_opt_energy = ts_atoms.get_potential_energy()
-        ts_opt_forces = ts_atoms.get_forces()
-        sp_calc = SinglePointCalculator(atoms=ts_atoms, energy=float(ts_opt_energy), forces=ts_opt_forces)
-        sp_calc.implemented_properties = ["energy", "forces"]
-        ts_atoms.calc = sp_calc
+            ts_opt_energy = ts_atoms.get_potential_energy()
+            ts_opt_forces = ts_atoms.get_forces()
+            ts_opt_fmax = get_fmax(ts_opt_forces)
+            sp_calc = SinglePointCalculator(atoms=ts_atoms, energy=float(ts_opt_energy), forces=ts_opt_forces)
+            sp_calc.implemented_properties = ["energy", "forces"]
+            ts_atoms.calc = sp_calc
+        else:
+            print("No max energy found")
 
         converged = False
-        if get_fmax(ts_opt_forces) <= 0.01:
+        if ts_opt_forces is not None and get_fmax(ts_opt_forces) <= 0.01:
             converged = True
 
         results_data['atoms'].append(ts_atoms)
         results_data['name'].append(filepath.split('/')[-1])
         results_data['neb_list'].append(neb_list)
         results_data['converged'].append(converged)
+        results_data['barrier'].append(barrier)
         results_data['NEB_barrier_ML_energy'].append(max_neb_energy)
         results_data['NEB_barrier_ML_forces'].append(max_neb_energy)
         results_data['NEB_barrier_ML_fmax'].append(max_neb_fmax)
         results_data['TS_opt_ML_max_energy'].append(ts_opt_energy)
         results_data['TS_opt_ML_forces'].append(ts_opt_forces)
-        results_data['TS_opt_ML_fmax'].append(get_fmax(ts_opt_forces))
+        results_data['TS_opt_ML_fmax'].append(ts_opt_fmax)
 
         if config["wandb"] == 'y':
             wandb.finish()
