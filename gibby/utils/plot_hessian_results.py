@@ -77,22 +77,6 @@ def plot_hexbin_corrections(
     Returns:
         None
     """
-    get_values, units = _get_value_metadata(value_name)
-
-    if value_name == "eigenvalues":
-        xlabel = f"eigenvalues ({units})"
-        ylabel = f"DFT eigenvalues ({units})"
-    elif value_name == "total":
-        xlabel = f"total correction ({units})"
-        ylabel = f"DFT total correction ({units})"
-    elif value_name == "freq":
-        import matplotlib.ticker as ticker
-        @ticker.FuncFormatter
-        def major_formatter(x, pos):
-            label = f"{-x:.0f}i" if x < 0 else f"{x:.0f}"
-            return label
-        xlabel = f"largest imaginary frequency ({units})"
-        ylabel = f"DFT corresponding frequency ({units})"
 
     fig_cols = 4
     if len(pred_dataframes_list) < 4:
@@ -115,39 +99,107 @@ def plot_hexbin_corrections(
         if pred_dataframes_names is not None:
             i_name = pred_dataframes_names[i]
 
-        ml_values = get_values(df)
-        vasp_values = get_values(true_dataframe)
-
-        min_max = (np.inf, -np.inf)
-        min_max = (min(min(ml_values), min_max[0]), max(max(ml_values), min_max[1]))
-        min_max = (min(min(vasp_values), min_max[0]), max(max(vasp_values), min_max[1]))
-        min_max = (min_max[0]-(np.max(np.abs(min_max))*0.1), min_max[1]+(np.max(np.abs(min_max))*0.1))
-
-        hexbin0 = ax.hexbin(
-            ml_values,
-            vasp_values,
-            gridsize=100,
-            cmap='viridis',
-            vmin=1, 
-            vmax=color_max, 
-            mincnt=1, 
-            extent=[min_max[0], min_max[1], min_max[0], min_max[1]],
+        hexbin0 = apply_hexbin_plot_to_axes(
+            ax,
+            df,
+            true_dataframe,
+            pred_df_name=i_name,
+            value_name=value_name,
+            size=size,
+            include_mae=include_mae,
+            color_max=color_max,
+            ax_min=None,
+            ax_max=None,
         )
-        ax.set_xlabel(f"{i_name} {xlabel}", fontsize=size)
-        ax.set_ylabel(ylabel, fontsize=size)
-        ax.set_aspect('equal', 'box')
-        # ax.set_xlim(min_max)
-        # ax.set_ylim(min_max)
 
-        if value_name == "freq":
-            ax.xaxis.set_major_formatter(major_formatter)
-            ax.yaxis.set_major_formatter(major_formatter)
-        
-        mae = np.mean(np.abs(ml_values - vasp_values))
-        # rmae = np.mean([np.abs((x-y)/y) for x, y in zip(ml_values, vasp_values)])# relative mean error
-        if include_mae:
-            ax.text(0.02, 0.98, f"MAE: {mae:.3f} {units}", transform=ax.transAxes, verticalalignment='top')
+    apply_hexbin_colorbar(hexbin0, fig, axs, size=size, cbar_ticks=cbar_ticks)
 
+    fig.patch.set_facecolor('white')
+
+    return fig
+
+def apply_hexbin_plot_to_axes(
+    ax,
+    pred_df,
+    true_df,
+    pred_df_name="ML",
+    value_name: str = "eigenvalues",
+    size=14,
+    include_mae=True,
+    color_max=5,
+    ax_min=None,
+    ax_max=None,
+):
+    """
+    Apply hexbin plot to axes
+    """
+    get_values, units = _get_value_metadata(value_name)
+
+    if value_name == "eigenvalues":
+        xlabel = f"eigenvalues ({units})"
+        ylabel = f"DFT eigenvalues ({units})"
+    elif value_name == "total":
+        xlabel = f"total correction ({units})"
+        ylabel = f"DFT total correction ({units})"
+    elif value_name == "freq":
+        import matplotlib.ticker as ticker
+        @ticker.FuncFormatter
+        def major_formatter(x, pos):
+            label = f"{-x:.0f}i" if x < 0 else f"{x:.0f}"
+            return label
+        xlabel = f"largest imaginary frequency ({units})"
+        ylabel = f"DFT corresponding frequency ({units})"
+
+    ml_values = get_values(pred_df)
+    vasp_values = get_values(true_df)
+
+    min_max = (np.inf, -np.inf)
+    min_max = (min(min(ml_values), min_max[0]), max(max(ml_values), min_max[1]))
+    min_max = (min(min(vasp_values), min_max[0]), max(max(vasp_values), min_max[1]))
+    min_max = (min_max[0]-(np.max(np.abs(min_max))*0.1), min_max[1]+(np.max(np.abs(min_max))*0.1))
+    if ax_min is not None:
+        min_max = (ax_min, min_max[1])
+    if ax_max is not None:
+        min_max = (min_max[0], ax_max)
+
+    hexbin0 = ax.hexbin(
+        ml_values,
+        vasp_values,
+        gridsize=100,
+        cmap='viridis',
+        vmin=1, 
+        vmax=color_max, 
+        mincnt=1, 
+        extent=[min_max[0], min_max[1], min_max[0], min_max[1]],
+    )
+    ax.set_xlabel(f"{pred_df_name} {xlabel}", fontsize=size)
+    ax.set_ylabel(ylabel, fontsize=size)
+    ax.set_aspect('equal', 'box')
+    # ax.set_xlim(min_max)
+    # ax.set_ylim(min_max)
+
+    if value_name == "freq":
+        ax.xaxis.set_major_formatter(major_formatter)
+        ax.yaxis.set_major_formatter(major_formatter)
+    
+    mae = np.mean(np.abs(ml_values - vasp_values))
+    # rmae = np.mean([np.abs((x-y)/y) for x, y in zip(ml_values, vasp_values)])# relative mean error
+    if include_mae:
+        ax.text(0.02, 0.98, f"MAE: {mae:.3f} {units}", transform=ax.transAxes, verticalalignment='top')
+
+    return hexbin0
+
+def apply_hexbin_colorbar(
+        hexbin0,
+        fig,
+        axs,
+        size=14,
+        cbar_ticks=[1, 2, 3, 4, 5],
+):
+    if not isinstance(axs, np.ndarray):
+        axs = np.array([axs])
+    else:
+        axs = axs.flatten()
     # Create a formatter function that formats numbers as integers
     formatter = FuncFormatter(lambda x, pos: f"{x:.0f}")
     # add shared colorbar
@@ -156,9 +208,9 @@ def plot_hexbin_corrections(
     cbar.ax.tick_params(labelsize=size)
     cbar.set_ticks(cbar_ticks)
 
+def savefig(fig, filename):
     fig.patch.set_facecolor('white')
-
-    return fig, axs
+    fig.savefig(filename, dpi=300, bbox_inches="tight")
 
 def get_eigenvalues(given_df):
     eigen_values_list = [sorted(eig) for eig in given_df["eigenvalues"].values]
