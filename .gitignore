@@ -2,3 +2,4 @@ gibby.egg-info/**
 **/__pycache__/**
 **/wandb/**
 **.pkl
+**/build/**

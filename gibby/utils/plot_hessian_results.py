@@ -64,6 +64,8 @@ def plot_hexbin_corrections(
         title_name=None, 
         size=16,
         include_mae=True,
+        color_max=5,
+        cbar_ticks=[1, 2, 3, 4, 5],
     ):
     """
     Plot a hexbin plot of the corrections from a dataframe containing corrections.
@@ -74,6 +76,62 @@ def plot_hexbin_corrections(
         size: default 16
     Returns:
         None
+    """
+
+    fig_cols = 4
+    if len(pred_dataframes_list) < 4:
+        fig_cols = len(pred_dataframes_list)
+    fig_rows = int(math.ceil(len(pred_dataframes_list)/fig_cols))
+
+    fig, axs = plt.subplots(fig_rows, fig_cols, figsize=(8*fig_cols+4, 6*fig_rows))
+    if title_name is not None:
+        fig.suptitle(title_name, fontsize=size)
+
+    if type(axs) is np.ndarray:
+        axs = axs.flatten()
+    for i, df in enumerate(pred_dataframes_list):
+        if type(axs) is np.ndarray:
+            ax = axs[i]
+        else:
+            ax = axs
+
+        i_name = "ML"
+        if pred_dataframes_names is not None:
+            i_name = pred_dataframes_names[i]
+
+        hexbin0 = apply_hexbin_plot_to_axes(
+            ax,
+            df,
+            true_dataframe,
+            pred_df_name=i_name,
+            value_name=value_name,
+            size=size,
+            include_mae=include_mae,
+            color_max=color_max,
+            ax_min=None,
+            ax_max=None,
+        )
+
+    apply_hexbin_colorbar(hexbin0, fig, axs, size=size, cbar_ticks=cbar_ticks)
+
+    fig.patch.set_facecolor('white')
+
+    return fig
+
+def apply_hexbin_plot_to_axes(
+    ax,
+    pred_df,
+    true_df,
+    pred_df_name="ML",
+    value_name: str = "eigenvalues",
+    size=14,
+    include_mae=True,
+    color_max=5,
+    ax_min=None,
+    ax_max=None,
+):
+    """
+    Apply hexbin plot to axes
     """
     get_values, units = _get_value_metadata(value_name)
 
@@ -92,56 +150,67 @@ def plot_hexbin_corrections(
         xlabel = f"largest imaginary frequency ({units})"
         ylabel = f"DFT corresponding frequency ({units})"
 
-    fig_cols = 4
-    if len(pred_dataframes_list) < 4:
-        fig_cols = len(pred_dataframes_list)
-    fig_rows = int(math.ceil(len(pred_dataframes_list)/fig_cols))
+    ml_values = get_values(pred_df)
+    vasp_values = get_values(true_df)
 
-    fig, axs = plt.subplots(fig_rows, fig_cols, figsize=(8*fig_cols+4, 6*fig_rows))
-    if title_name is not None:
-        fig.suptitle(title_name, fontsize=size)
+    min_max = (np.inf, -np.inf)
+    min_max = (min(min(ml_values), min_max[0]), max(max(ml_values), min_max[1]))
+    min_max = (min(min(vasp_values), min_max[0]), max(max(vasp_values), min_max[1]))
+    min_max = (min_max[0]-(np.max(np.abs(min_max))*0.1), min_max[1]+(np.max(np.abs(min_max))*0.1))
+    if ax_min is not None:
+        min_max = (ax_min, min_max[1])
+    if ax_max is not None:
+        min_max = (min_max[0], ax_max)
 
-    axs = axs.flatten()
-    for i, df in enumerate(pred_dataframes_list):
-        i_name = "ML"
-        if pred_dataframes_names is not None:
-            i_name = pred_dataframes_names[i]
+    hexbin0 = ax.hexbin(
+        ml_values,
+        vasp_values,
+        gridsize=100,
+        cmap='viridis',
+        vmin=1, 
+        vmax=color_max, 
+        mincnt=1, 
+        extent=[min_max[0], min_max[1], min_max[0], min_max[1]],
+    )
+    ax.set_xlabel(f"{pred_df_name} {xlabel}", fontsize=size)
+    ax.set_ylabel(ylabel, fontsize=size)
+    ax.set_aspect('equal', 'box')
+    # ax.set_xlim(min_max)
+    # ax.set_ylim(min_max)
 
-        ml_values = get_values(df)
-        vasp_values = get_values(true_dataframe)
+    if value_name == "freq":
+        ax.xaxis.set_major_formatter(major_formatter)
+        ax.yaxis.set_major_formatter(major_formatter)
+    
+    mae = np.mean(np.abs(ml_values - vasp_values))
+    # rmae = np.mean([np.abs((x-y)/y) for x, y in zip(ml_values, vasp_values)])# relative mean error
+    if include_mae:
+        ax.text(0.02, 0.98, f"MAE: {mae:.3f} {units}", transform=ax.transAxes, verticalalignment='top')
 
-        min_max = (np.inf, -np.inf)
-        min_max = (min(min(ml_values), min_max[0]), max(max(ml_values), min_max[1]))
-        min_max = (min(min(vasp_values), min_max[0]), max(max(vasp_values), min_max[1]))
-        min_max = (min_max[0]-(np.max(np.abs(min_max))*0.1), min_max[1]+(np.max(np.abs(min_max))*0.1))
+    return hexbin0
 
-        hexbin0 = axs[i].hexbin(ml_values, vasp_values, gridsize=100, cmap='viridis', vmin=1, vmax=5, mincnt=1)
-        axs[i].set_xlabel(f"{i_name} {xlabel}", fontsize=size)
-        axs[i].set_ylabel(ylabel, fontsize=size)
-        axs[i].set_aspect('equal', 'box')
-        axs[i].set_xlim(min_max)
-        axs[i].set_ylim(min_max)
-
-        if value_name == "freq":
-            axs[i].xaxis.set_major_formatter(major_formatter)
-            axs[i].yaxis.set_major_formatter(major_formatter)
-        
-        mae = np.mean(np.abs(ml_values - vasp_values))
-        # rmae = np.mean([np.abs((x-y)/y) for x, y in zip(ml_values, vasp_values)])# relative mean error
-        if include_mae:
-            axs[i].text(0.02, 0.98, f"MAE: {mae:.3f} {units}", transform=axs[i].transAxes, verticalalignment='top')
-
+def apply_hexbin_colorbar(
+        hexbin0,
+        fig,
+        axs,
+        size=14,
+        cbar_ticks=[1, 2, 3, 4, 5],
+):
+    if not isinstance(axs, np.ndarray):
+        axs = np.array([axs])
+    else:
+        axs = axs.flatten()
     # Create a formatter function that formats numbers as integers
     formatter = FuncFormatter(lambda x, pos: f"{x:.0f}")
     # add shared colorbar
-    cbar = fig.colorbar(hexbin0, ax=axs.ravel().tolist(), format=formatter)
+    cbar = fig.colorbar(hexbin0, ax=axs, format=formatter)
     # set colorbar ticks fontsize
     cbar.ax.tick_params(labelsize=size)
-    cbar.set_ticks([1, 2, 3, 4, 5])
+    cbar.set_ticks(cbar_ticks)
 
+def savefig(fig, filename):
     fig.patch.set_facecolor('white')
-
-    return fig
+    fig.savefig(filename, dpi=300, bbox_inches="tight")
 
 def get_eigenvalues(given_df):
     eigen_values_list = [sorted(eig) for eig in given_df["eigenvalues"].values]
@@ -187,7 +256,7 @@ def plot_mae_vs_key(
     elif value_name == "total":
         ylabel = f"total correction MAE ({units})"
     elif value_name == "freq":
-        ylabel = f"largest imaginary frequency MAE ({units})"
+        ylabel = f"largest imaginary freq. MAE ({units})"
     
     vasp_values = get_values(true_dataframe)
     mae_list = []

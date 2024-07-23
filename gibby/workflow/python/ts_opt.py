@@ -14,6 +14,7 @@ import pandas as pd
 from tqdm import tqdm
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 
 from sella import Sella, Constraints
 
@@ -31,10 +32,15 @@ def get_parser():
         #     "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/dissociations/dissociation_ood_473_6681_28_111-4_neb1.0.traj",
         #     "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/dissociations/dissociation_ood_486_5397_13_011-1_neb1.0.traj",
         # ],
-        default=[
-            "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/dissociations",
-            "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/desorptions",
-            "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/transfers",
+        # default=[
+        #     "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/dissociations",
+        #     "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/desorptions",
+        #     "/home/jovyan/shared-scratch/Brook/neb_stuff/dft_trajs_for_release/transfers",
+        # ],
+        default=[ # ml trajectories
+            "/home/jovyan/shared-scratch/Brook/neb_stuff/checkpoint/brookwander/neb_results/val_sps_w_dft_rx_init_final/ml_val_w_dft_sp_disoc_202310/eq2_153M_ec4_allmd",
+            "/home/jovyan/shared-scratch/Brook/neb_stuff/checkpoint/brookwander/neb_results/val_sps_w_dft_rx_init_final/ml_val_w_dft_sp_transfer_202310/eq2_153M_ec4_allmd",
+            "/home/jovyan/shared-scratch/Brook/neb_stuff/checkpoint/brookwander/neb_results/val_sps_w_dft_rx_init_final/ml_val_w_dft_sp_desorp_20231026/eq2_153M_ec4_allmd",
         ],
     )
     parser.add_argument(
@@ -91,7 +97,7 @@ def get_parser():
     parser.add_argument(
         "--gamma",
         type=float, 
-        default=0.1,
+        default=0,
         help="Convergence criterion for iterative diagonalization"
     )
     parser.add_argument(
@@ -131,15 +137,19 @@ def main(config):
     pp.pprint(config)
 
     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    print(f"timestamp string (wandb group): {timestamp_str}")
 
     results_data = {
         "atoms": [],
         "name": [],
         "neb_list": [],
         "converged": [],
-        "NEB_ML_max_energy": [],
-        "NEB_ML_fmax": [],
+        'barrier': [],
+        "NEB_barrier_ML_energy": [],
+        "NEB_barrier_ML_forces": [],
+        "NEB_barrier_ML_fmax": [],
         "TS_opt_ML_max_energy": [],
+        "TS_opt_ML_forces": [],
         "TS_opt_ML_fmax": [],
     }
 
@@ -166,34 +176,63 @@ def main(config):
     else:
         calc = EMT()
 
-    for filepath in tqdm(neb_files_list):
+    for j, filepath in tqdm(enumerate(neb_files_list), total=len(neb_files_list)):
+
         if config["wandb"] == 'y':
+            # Wandb workaround for preventing excessive logging
+            # Get the path to the current file's directory
+            current_dir = os.path.dirname(os.path.realpath(__file__))
+            # Create the wandb directory if it doesn't exist
+            wandb_dir = os.path.join(current_dir, 'wandb')
+            if not os.path.exists(wandb_dir):
+                os.makedirs(wandb_dir)
+            # Create the symbolic link to /dev/null
+            null_link = os.path.join(wandb_dir, 'null')
+            if not os.path.exists(null_link):
+                os.symlink('/dev/null', null_link)
+
             wandb.init(
                 config=config,
                 name=filepath.split('/')[-1],
-                project="ts_opt_sella",
-                group=timestamp_str,
+                project=f"ts_opt_sella",
+                group=f"{timestamp_str} {config['output_name']}",
+                notes=f"{config['output_name']}\ntimestamp group:{timestamp_str}",
+                settings=wandb.Settings(
+                    log_internal=str(Path(__file__).parent / 'wandb' / 'null'),
+                )
             )
 
         neb_list = []
         neb_traj = read(filepath, index='-10:')
-        max_energy = -np.inf
-        for i, atoms in enumerate(neb_traj[1:-1]):
+        max_neb_energy = -np.inf
+        max_neb_forces = None
+        max_neb_fmax = None
+        ts_atoms = None
+        index = None
+        ts_opt_energy = None
+        ts_opt_forces = None
+        ts_opt_fmax = None
+        barrier = False
+        for i, atoms in enumerate(neb_traj):
             neb_list.append(atoms) # add to neb_list the DFT singlepoint results
             atoms_copy = atoms.copy()
             atoms_copy.calc = calc
-            energy = atoms_copy.get_potential_energy()
-            forces = atoms_copy.get_forces()
-            sp_calc = SinglePointCalculator(atoms=atoms_copy, energy=float(energy), forces=forces)
+            neb_energy = atoms_copy.get_potential_energy()
+            neb_forces = atoms_copy.get_forces()
+            sp_calc = SinglePointCalculator(atoms=atoms_copy, energy=float(neb_energy), forces=neb_forces)
             sp_calc.implemented_properties = ["energy", "forces"]
             atoms_copy.calc = sp_calc
-            print(f"NEB atoms {i} {atoms_copy.symbols} DFT calc: {energy:.4f}, fmax: {get_fmax(forces):.4f}")
-            if energy > max_energy:
-                max_energy = energy
-                max_fmax = get_fmax(forces)
+            print(f"NEB atoms {i} {atoms_copy.symbols} DFT calc: {neb_energy:.4f}, fmax: {get_fmax(neb_forces):.4f}")
+            if neb_energy > max_neb_energy or ts_atoms is None:
+                if not i == 0 and not i == len(neb_traj)-1:
+                    barrier = True
+                max_neb_energy = neb_energy
+                max_neb_forces = neb_forces
+                max_neb_fmax = get_fmax(max_neb_forces)
                 ts_atoms = atoms_copy
                 index = i
-        print(f"ML calc max energy: {max_energy} index {index}, fmax: {get_fmax(ts_atoms.get_forces())}")
+        print(f"ML calc max energy: {max_neb_energy} index {index}, fmax: {max_neb_fmax}, barrier: {barrier}")
+        
         ts_atoms.calc = calc
 
         cons = Constraints(ts_atoms)
@@ -218,31 +257,35 @@ def main(config):
             sigma_dec=config['sigma_dec'],  # Trust radius decrease factor
         )
         if config['wandb'] == 'y':
-            dyn.attach(wandb_callback_func, interval=1, atoms=dyn.atoms, rho=dyn.rho, step=dyn.nsteps)
+            dyn.attach(wandb_callback_func, interval=1, dyn=dyn, initial_energy=ts_atoms.get_potential_energy())
         try:
             dyn.run(0.01, config['nsteps'])
         except Exception as e:
             print(e)
         print(f"max energy {ts_atoms.get_potential_energy():.4f}, fmax: {get_fmax(ts_atoms.get_forces()):.4f}")
 
-        energy = ts_atoms.get_potential_energy()
-        forces = ts_atoms.get_forces()
-        sp_calc = SinglePointCalculator(atoms=ts_atoms, energy=float(energy), forces=forces)
+        ts_opt_energy = ts_atoms.get_potential_energy()
+        ts_opt_forces = ts_atoms.get_forces()
+        ts_opt_fmax = get_fmax(ts_opt_forces)
+        sp_calc = SinglePointCalculator(atoms=ts_atoms, energy=float(ts_opt_energy), forces=ts_opt_forces)
         sp_calc.implemented_properties = ["energy", "forces"]
         ts_atoms.calc = sp_calc
 
         converged = False
-        if get_fmax(forces) <= 0.01:
+        if ts_opt_forces is not None and get_fmax(ts_opt_forces) <= 0.01:
             converged = True
 
         results_data['atoms'].append(ts_atoms)
         results_data['name'].append(filepath.split('/')[-1])
         results_data['neb_list'].append(neb_list)
         results_data['converged'].append(converged)
-        results_data['NEB_ML_max_energy'].append(max_energy)
-        results_data['NEB_ML_fmax'].append(max_fmax)
-        results_data['TS_opt_ML_max_energy'].append(energy)
-        results_data['TS_opt_ML_fmax'].append(get_fmax(forces))
+        results_data['barrier'].append(barrier)
+        results_data['NEB_barrier_ML_energy'].append(max_neb_energy)
+        results_data['NEB_barrier_ML_forces'].append(max_neb_energy)
+        results_data['NEB_barrier_ML_fmax'].append(max_neb_fmax)
+        results_data['TS_opt_ML_max_energy'].append(ts_opt_energy)
+        results_data['TS_opt_ML_forces'].append(ts_opt_forces)
+        results_data['TS_opt_ML_fmax'].append(ts_opt_fmax)
 
         if config["wandb"] == 'y':
             wandb.finish()
@@ -254,12 +297,13 @@ def main(config):
         df = pd.DataFrame(results_data)
         df.to_pickle(os.path.join(config['output_dir'], f"{config['output_name']}.pkl"))
 
-def wandb_callback_func(atoms, rho, step):
+def wandb_callback_func(dyn, initial_energy):
     log_dict = {
-        "fmax": get_fmax(atoms.get_forces()),
-        "energy": atoms.get_potential_energy(),
-        "i": step,
-        "rho": rho,
+        "fmax": get_fmax(dyn.atoms.get_forces()),
+        "energy": dyn.atoms.get_potential_energy(),
+        "i": dyn.nsteps,
+        "rho": dyn.rho,
+        "relative_energy": initial_energy - dyn.atoms.get_potential_energy(),
     }
     wandb.log(log_dict)
     
