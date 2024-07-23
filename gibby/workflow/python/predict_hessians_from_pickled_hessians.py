@@ -9,7 +9,7 @@ from jlaunch.hessian_smoothness.utils.make_lmdb_class import MakeLmdb
 import pandas as pd
 from tqdm import tqdm
 import json
-from gibby.utils.ocp_calc_wrapper import OCPCalcWrapper
+from gibby.utils.ocp_calc_wrapper import OCPCalcWrapper, get_config_override
 from ase.optimize import BFGS
 from ase.vibrations import Vibrations
 import sys
@@ -136,33 +136,11 @@ def main(config):
             df = pickle.load(f)
 
         for checkpoint_path in config['checkpoint_path']:
-            if "gemnet_dt" in checkpoint_path:
-                config_override = {
-                    "model_attributes": {
-                        "scale_file": config["scale_file"],
-                        # "otf_graph": False,
-                    },
-                }
-            elif "schnet" in checkpoint_path:
-                config_override = {
-                    "task":{
-                        "strict_load": False,
-                    },
-                }
-            else:
-                config_override = {}
-
-            if config['checkpoint_model_class_override'] is not None:
-                config_override["model"] = config['checkpoint_model_class_override']
-
-            # add null to scheduler, because we don't need to train, and this creates a problem when using best checkpoint
-            config_override["optim"] = {
-                "scheduler": "Null",
-            }
-
-            config_override["task"] = {
-                "strict_load": False,
-            }
+            config_override = get_config_override(
+                checkpoint_path=checkpoint_path,
+                scale_file_path=config['scale_file'],
+                checkpoint_model_class_override=config['checkpoint_model_class_override'],
+            )
 
             calc = OCPCalcWrapper(
                 checkpoint_path=checkpoint_path,
