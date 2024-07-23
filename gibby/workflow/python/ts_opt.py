@@ -14,6 +14,7 @@ import pandas as pd
 from tqdm import tqdm
 import numpy as np
 from datetime import datetime
+from pathlib import Path
 
 from sella import Sella, Constraints
 
@@ -178,12 +179,27 @@ def main(config):
     for j, filepath in tqdm(enumerate(neb_files_list), total=len(neb_files_list)):
 
         if config["wandb"] == 'y':
+            # Wandb workaround for preventing excessive logging
+            # Get the path to the current file's directory
+            current_dir = os.path.dirname(os.path.realpath(__file__))
+            # Create the wandb directory if it doesn't exist
+            wandb_dir = os.path.join(current_dir, 'wandb')
+            if not os.path.exists(wandb_dir):
+                os.makedirs(wandb_dir)
+            # Create the symbolic link to /dev/null
+            null_link = os.path.join(wandb_dir, 'null')
+            if not os.path.exists(null_link):
+                os.symlink('/dev/null', null_link)
+
             wandb.init(
                 config=config,
                 name=filepath.split('/')[-1],
                 project=f"ts_opt_sella",
                 group=f"{timestamp_str} {config['output_name']}",
                 notes=f"{config['output_name']}\ntimestamp group:{timestamp_str}",
+                settings=wandb.Settings(
+                    log_internal=str(Path(__file__).parent / 'wandb' / 'null'),
+                )
             )
 
         neb_list = []
