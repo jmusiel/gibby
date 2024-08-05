@@ -15,6 +15,7 @@ def hessian_to_corrections(
     st_conversion=1.239842e-4,
     temperature=300,
     hessian_from_vasp=False,
+    linear_scaling=None,
 ):
     """
     input a dataframe containing hessians in a column, given by hessian_column_key
@@ -37,6 +38,12 @@ def hessian_to_corrections(
             hessian = row[hessian_column_key]
             if hessian_from_vasp:
                 hessian = -hessian
+
+            if linear_scaling is not None:
+                I = np.eye(len(hessian))
+                m = linear_scaling["m"]
+                b = linear_scaling["b"]
+                hessian = hessian * m + b
 
             atoms = row[atoms_column_key]
             free_indices = [
@@ -68,5 +75,6 @@ def hessian_to_corrections(
             results_dict["real_freq"].append(real_freq)
             results_dict["eigenvalues"].append([i for i in eigvalues])
             results_dict["eigenvectors"].append([i for i in eigvectors])
+            results_dict["atoms"].append(atoms)
 
     return pd.DataFrame(results_dict)
