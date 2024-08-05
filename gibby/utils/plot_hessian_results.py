@@ -66,6 +66,7 @@ def plot_hexbin_corrections(
         include_mae=True,
         color_max=5,
         cbar_ticks=[1, 2, 3, 4, 5],
+        include_parity_line=False,
     ):
     """
     Plot a hexbin plot of the corrections from a dataframe containing corrections.
@@ -110,6 +111,7 @@ def plot_hexbin_corrections(
             color_max=color_max,
             ax_min=None,
             ax_max=None,
+            include_parity_line=include_parity_line,
         )
 
     apply_hexbin_colorbar(hexbin0, fig, axs, size=size, cbar_ticks=cbar_ticks)
@@ -129,6 +131,7 @@ def apply_hexbin_plot_to_axes(
     color_max=5,
     ax_min=None,
     ax_max=None,
+    include_parity_line=False,
 ):
     """
     Apply hexbin plot to axes
@@ -177,6 +180,9 @@ def apply_hexbin_plot_to_axes(
     ax.set_aspect('equal', 'box')
     # ax.set_xlim(min_max)
     # ax.set_ylim(min_max)
+
+    if include_parity_line:
+        ax.plot(min_max, min_max, color='tab:gray', linestyle='--')
 
     if value_name == "freq":
         ax.xaxis.set_major_formatter(major_formatter)
