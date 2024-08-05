@@ -1,0 +1,48 @@
+apiVersion: batch/v1
+kind: Job
+metadata:
+  name: "run-pes"
+  namespace: brook-wander
+spec:
+  completions: 600?
+  parallelism: 8
+  completionMode: Indexed
+  template:
+    spec:
+      affinity:
+        nodeAffinity:
+          requiredDuringSchedulingIgnoredDuringExecution:
+            nodeSelectorTerms:
+            - matchExpressions:
+              - key: nvidia.com/gpu.product
+                operator: In
+                values:
+                - RTX-A6000
+                - NVIDIA-RTX-A6000
+      restartPolicy: Never
+      containers:
+      - env:
+        command:
+        - /bin/bash
+        - -c
+        args:
+        - echo ${JOB_COMPLETION_INDEX} &&
+          python /home/jovyan/gibby/gibby/workflow/python/run_pes.py --gpu --sys_id ${JOB_COMPLETION_INDEX} --input_file /home/jovyan/shared-scratch/Brook/cpes/inputs.pkl --output_file /home/jovyan/shared-scratch/Brook/cpes/outputs/
+        image: 'ulissigroup/kubeflow_vasp:extras-notebook'
+        name: 'sample-load'
+        resources:
+          limits:
+            cpu: 8
+            memory: 16Gi
+            nvidia.com/gpu: "1"
+          requests:
+            cpu: 8
+            memory: 16Gi
+        volumeMounts:
+        - mountPath: /home/jovyan/shared-scratch/
+          name: shared-scratch
+      volumes:
+      - name: shared-scratch
+        persistentVolumeClaim:
+          claimName: shared-scratch
+      priorityClassName: default-priority
