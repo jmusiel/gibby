@@ -45,9 +45,7 @@ from gibby.oc_models.compute_hessian_autograd import compute_hessian_autograd
 
 # Statistics of IS2RE 100K
 _AVG_NUM_NODES = 77.81317
-_AVG_DEGREE = (
-    23.395238876342773  # IS2RE: 100k, max_radius = 5, max_neighbors = 100
-)
+_AVG_DEGREE = 23.395238876342773  # IS2RE: 100k, max_radius = 5, max_neighbors = 100
 
 
 @registry.register_model("equiformer_v2_hessian")
@@ -160,9 +158,7 @@ class EquiformerV2_OC20_Hessian(BaseModel):
         import sys
 
         if "e3nn" not in sys.modules:
-            logging.error(
-                "You need to install e3nn==0.4.4 to use EquiformerV2."
-            )
+            logging.error("You need to install e3nn==0.4.4 to use EquiformerV2.")
             raise ImportError
 
         self.use_pbc = use_pbc
@@ -230,9 +226,7 @@ class EquiformerV2_OC20_Hessian(BaseModel):
 
         self.grad_forces = False
         self.num_resolutions: int = len(self.lmax_list)
-        self.sphere_channels_all: int = (
-            self.num_resolutions * self.sphere_channels
-        )
+        self.sphere_channels_all: int = self.num_resolutions * self.sphere_channels
 
         # Weights for message initialization
         self.sphere_embedding = nn.Embedding(
@@ -279,9 +273,7 @@ class EquiformerV2_OC20_Hessian(BaseModel):
             self.SO3_rotation.append(SO3_Rotation(self.lmax_list[i]))
 
         # Initialize conversion between degree l and order m layouts
-        self.mappingReduced = CoefficientMappingModule(
-            self.lmax_list, self.mmax_list
-        )
+        self.mappingReduced = CoefficientMappingModule(self.lmax_list, self.mmax_list)
 
         # Initialize the transformations between spherical and grid representations
         self.SO3_grid = ModuleListInfo(
@@ -427,9 +419,7 @@ class EquiformerV2_OC20_Hessian(BaseModel):
         ###############################################################
 
         # Compute 3x3 rotation matrix per edge
-        edge_rot_mat = self._init_edge_rot_mat(
-            data, edge_index, edge_distance_vec
-        )
+        edge_rot_mat = self._init_edge_rot_mat(data, edge_index, edge_distance_vec)
 
         # Initialize the WignerD matrices and other values for spherical harmonic calculations
         for i in range(self.num_resolutions):
@@ -454,25 +444,19 @@ class EquiformerV2_OC20_Hessian(BaseModel):
         # Initialize the l = 0, m = 0 coefficients for each resolution
         for i in range(self.num_resolutions):
             if self.num_resolutions == 1:
-                x.embedding[:, offset_res, :] = self.sphere_embedding(
-                    atomic_numbers
-                )
+                x.embedding[:, offset_res, :] = self.sphere_embedding(atomic_numbers)
             else:
-                x.embedding[:, offset_res, :] = self.sphere_embedding(
-                    atomic_numbers
-                )[:, offset : offset + self.sphere_channels]
+                x.embedding[:, offset_res, :] = self.sphere_embedding(atomic_numbers)[
+                    :, offset : offset + self.sphere_channels
+                ]
             offset = offset + self.sphere_channels
             offset_res = offset_res + int((self.lmax_list[i] + 1) ** 2)
 
         # Edge encoding (distance and atom edge)
         edge_distance = self.distance_expansion(edge_distance)
         if self.share_atom_edge_embedding and self.use_atom_edge_embedding:
-            source_element = atomic_numbers[
-                edge_index[0]
-            ]  # Source atom atomic number
-            target_element = atomic_numbers[
-                edge_index[1]
-            ]  # Target atom atomic number
+            source_element = atomic_numbers[edge_index[0]]  # Source atom atomic number
+            target_element = atomic_numbers[edge_index[1]]  # Target atom atomic number
             source_embedding = self.source_embedding(source_element)
             target_embedding = self.target_embedding(target_element)
             edge_distance = torch.cat(
@@ -541,9 +525,7 @@ class EquiformerV2_OC20_Hessian(BaseModel):
         # Force estimation
         ###############################################################
         if self.regress_forces:
-            forces = self.force_block(
-                x, atomic_numbers, edge_distance, edge_index
-            )
+            forces = self.force_block(x, atomic_numbers, edge_distance, edge_index)
             forces = forces.embedding.narrow(1, 1, 3)
             forces = forces.view(-1, 3)
 
@@ -594,15 +576,9 @@ class EquiformerV2_OC20_Hessian(BaseModel):
                 or isinstance(module, SO3_LinearV2)
                 or isinstance(module, torch.nn.LayerNorm)
                 or isinstance(module, EquivariantLayerNormArray)
-                or isinstance(
-                    module, EquivariantLayerNormArraySphericalHarmonics
-                )
-                or isinstance(
-                    module, EquivariantRMSNormArraySphericalHarmonics
-                )
-                or isinstance(
-                    module, EquivariantRMSNormArraySphericalHarmonicsV2
-                )
+                or isinstance(module, EquivariantLayerNormArraySphericalHarmonics)
+                or isinstance(module, EquivariantRMSNormArraySphericalHarmonics)
+                or isinstance(module, EquivariantRMSNormArraySphericalHarmonicsV2)
                 or isinstance(module, GaussianRadialBasisLayer)
             ):
                 for parameter_name, _ in module.named_parameters():

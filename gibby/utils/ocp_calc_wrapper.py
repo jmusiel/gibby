@@ -54,10 +54,13 @@ class OCPCalcWrapper(OCPCalculator):
         self.results["forces"] = self.results["forces"].astype(np.float32)
 
     def extract_hessian(self, atoms):
-        atoms.get_forces()
-        hessian = self.trainer.model.module.hessian.detach().cpu().numpy()
+        forces = atoms.get_forces()
+        hessian = self.trainer.model.module.hessian.detach()
+        denormed_hessian = self.trainer.normalizers["grad_target"].denorm(hessian)
+        hessian = hessian.detach().cpu().numpy()
+        denormed_hessian = denormed_hessian.detach().cpu().numpy()
         self.trainer.model.module.hessian = None
-        return hessian
+        return denormed_hessian
 
 
 # base_trainer overwrite for load_checkpoint
@@ -138,7 +141,11 @@ def recursive_update(dict0, dict1):
     return dict0
 
 
-def get_config_override(checkpoint_path: str, scale_file_path: str, checkpoint_model_class_override: str=None):
+def get_config_override(
+    checkpoint_path: str,
+    scale_file_path: str,
+    checkpoint_model_class_override: str = None,
+):
     config_override = {}
     if "gemnet_dt" in checkpoint_path:
         config_override = {
@@ -159,8 +166,12 @@ def get_config_override(checkpoint_path: str, scale_file_path: str, checkpoint_m
         config_override["model"] = checkpoint_model_class_override
 
     # add null to scheduler, because we don't need to train, and this creates a problem when using best checkpoint
-    config_override = recursive_update(config_override, {"optim": {"scheduler": "Null"}})
+    config_override = recursive_update(
+        config_override, {"optim": {"scheduler": "Null"}}
+    )
     # add strict_load=False to task, because some checkpoints have extra parameters missing/added that don't affect inference
-    config_override = recursive_update(config_override, {"task": {"strict_load": False}})
+    config_override = recursive_update(
+        config_override, {"task": {"strict_load": False}}
+    )
 
     return config_override
