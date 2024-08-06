@@ -314,7 +314,7 @@ class PotentialEnergySampling:
         self,
         slab,
         ads,
-        calc,
+        calc=None,
         height=None,
         indices_surf=None,
         distance=2.,
@@ -343,7 +343,7 @@ class PotentialEnergySampling:
         Args:
             slab (ase.Atoms): ase.Atoms object of the slab.
             ads (ase.Atoms): ase.Atoms object of the adsorbate.
-            calc (ase.calculators.Calculator): ase calculator.
+            calc (ase.calculators.Calculator): ase calculator. Defaults to None.
             height (float, optional): height (z axis), in Angstrom, of the surface
             atoms. Defaults to None.
             indices_surf (list, optional): list of indices of the surface atoms.
@@ -423,8 +423,8 @@ class PotentialEnergySampling:
     def name(self):
         return str(self.cache.directory)
 
-    def run(self):
-        """Run Potential Energy Sampling method."""
+    def prepare(self):
+        """Prepare Potential Energy Sampling method."""
     
         if len([cc for cc in self.slab.constraints if isinstance(cc, FixAtoms)]) == 0:
             raise Exception("Atoms must contain FixAtoms constraint.")
@@ -468,10 +468,19 @@ class PotentialEnergySampling:
             spacing=self.spacing,
             z_func=self.z_func,
         )
+        self.xyz_points = xyz_points
+        
+        return xyz_points
 
+    def run(self):
+        """Run Potential Energy Sampling method."""
+    
+        # Prepare the grid.
+        self.prepare()
+    
         # Do constrained relaxations.
-        xye_points = xyz_points.copy()
-        for ii, position in enumerate(xyz_points):
+        xye_points = self.xyz_points.copy()
+        for ii, position in enumerate(self.xyz_points):
             with self.cache.lock(f"{ii:04d}") as handle:
                 if handle is None:
                     xye_points[ii] = self.cache[f"{ii:04d}"]
@@ -503,7 +512,6 @@ class PotentialEnergySampling:
                 if world.rank == 0:
                     handle.save(xye_points[ii])
 
-        self.xyz_points = xyz_points
         self.xye_points = xye_points
         self.xye_points_ext = extend_xyz_points(
             xyz_points=xye_points,
@@ -512,6 +520,31 @@ class PotentialEnergySampling:
         )
         self.es_grid = None
 
+        return xye_points
+
+    def read(self, trajectory):
+        """Read energies from an ase trajectory."""
+        from ase.io import read
+        atoms_list = read(trajectory, ":")
+        
+        # Prepare the grid.
+        self.prepare()
+        
+        assert len(atoms_list) == len(self.xyz_points)
+        
+        # Read the energies.
+        xye_points = self.xyz_points.copy()
+        for ii, position in enumerate(self.xyz_points):
+            xye_points[ii, 2] = atoms_list[ii].get_potential_energy()
+        
+        self.xye_points = xye_points
+        self.xye_points_ext = extend_xyz_points(
+            xyz_points=xye_points,
+            cell=self.cell,
+            border=self.border,
+        )
+        self.es_grid = None
+        
         return xye_points
 
     def clean(self, empty_files=False):
@@ -722,6 +755,38 @@ class FixSubsetCom(FixConstraint):
             'name': self.__class__.__name__,
             'kwargs': {'indices': self.index.tolist(), 'mask': self.mask.tolist()}
         }
+
+# -------------------------------------------------------------------------------------
+# PLOT ENTROPIES
+# -------------------------------------------------------------------------------------
+
+def plot_entropies(
+    thermo_dict,
+    temperature_range=[200, 1000],
+    step=10,
+    filename="entropies.png",
+):
+    
+    import matplotlib.pyplot as plt
+    entropies_dict = {name: [] for name in thermo_dict}
+    temperature_list = range(temperature_range[0], temperature_range[1]+step, step)
+    for temperature in temperature_list:
+        for name in thermo_dict:
+            entropy = thermo_dict[name].get_entropy(
+                temperature=temperature,
+                verbose=False,
+            )
+            entropies_dict[name].append(entropy*1000) # [meV/K]
+    
+    plt.figure()
+    for name in thermo_dict:
+        plt.plot(temperature_list, entropies_dict[name], label=name)
+    plt.legend(loc='upper left')
+    plt.xlim(temperature_range)
+    #plt.ylim([0.2, 1.2])
+    plt.xlabel("temperature [K]")
+    plt.ylabel("entropy [meV/K]")
+    plt.savefig(filename)
 
 # -------------------------------------------------------------------------------------
 # END
