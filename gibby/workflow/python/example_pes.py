@@ -24,6 +24,7 @@ def main():
     spacing_surrogate = 0.05
     reduce_cell = True
     distance = 2.
+    all_hookean = True
     fix_com = True
     index = 0
     fmax = 0.03
@@ -96,6 +97,7 @@ def main():
         calc=calc,
         indices_surf=indices_surf,
         distance=distance,
+        all_hookean=all_hookean,
         e_min=e_min,
         spacing=spacing,
         spacing_surrogate=spacing_surrogate,

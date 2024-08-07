@@ -307,7 +307,14 @@ def constrained_relaxation(
         ase.Atoms: slab + adsorbate atoms relaxed.
     """
 
-    atoms = slab + ads
+    ads_new = ads.copy()
+    ads_new.constraints = []
+    for constraint in [constraint.copy() for constraint in ads.constraints]:
+        if hasattr(constraint, "indices"):
+            constraint.indices = [ii+len(slab) for ii in constraint.indices]
+            slab.constraints.append(constraint)
+
+    atoms = slab + ads_new
     indices = [aa.index for aa in atoms if aa.index >= len(slab)]
 
     if fix_com is True:
@@ -336,6 +343,7 @@ class PotentialEnergySampling:
         height=None,
         indices_surf=None,
         distance=2.0,
+        all_hookean=True,
         e_min=None,
         spacing=0.20,
         spacing_surrogate=0.05,
@@ -434,6 +442,8 @@ class PotentialEnergySampling:
         else:
             ads_pos = self.ads[index].position
         self.ads.translate(-ads_pos)
+        if all_hookean is True:
+            set_all_hookean(self.ads)
 
         self.cache = get_json_cache(name)
 
@@ -781,9 +791,11 @@ class FixSubsetCom(FixConstraint):
             "kwargs": {"indices": self.index.tolist(), "mask": self.mask.tolist()},
         }
 
+
 # -------------------------------------------------------------------------------------
 # PLOT ENTROPIES
 # -------------------------------------------------------------------------------------
+
 
 def plot_entropies(
     thermo_dict,
@@ -812,6 +824,29 @@ def plot_entropies(
     plt.xlabel("temperature [K]")
     plt.ylabel("entropy [meV/K]")
     plt.savefig(filename)
+
+
+# -------------------------------------------------------------------------------------
+# ALL HOOKEAN
+# -------------------------------------------------------------------------------------
+
+
+def set_all_hookean(atoms, add_cutoffs=0.1, add_bond_thr=1., k=10.):
+    from ase.neighborlist import build_neighbor_list, natural_cutoffs
+    from ase.constraints import Hookean
+    
+    cutoffs = np.array(natural_cutoffs(atoms=atoms))
+    nl = build_neighbor_list(
+        atoms=atoms,
+        cutoffs=cutoffs+add_cutoffs,
+        self_interaction=False,
+        bothways=False,
+    )
+    bonds = list(nl.get_connectivity_matrix().keys())
+    for a1, a2 in bonds:
+        rt = cutoffs[a1]+cutoffs[a2]+add_bond_thr
+        atoms.constraints.append(Hookean(a1=a1, a2=a2, k=k, rt=rt))
+
 
 # -------------------------------------------------------------------------------------
 # END
