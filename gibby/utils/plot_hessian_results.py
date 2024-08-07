@@ -2,6 +2,10 @@ import matplotlib.pyplot as plt
 import numpy as np
 import math
 from matplotlib.ticker import FuncFormatter
+import ase
+import scipy.optimize
+from tqdm import tqdm
+import scipy
 
 
 def plot_corrections_histogram(pred_dataframe, true_dataframe, name=None, size=16):
@@ -130,6 +134,13 @@ def plot_hexbin_corrections(
     return fig
 
 
+import matplotlib.ticker as ticker
+@ticker.FuncFormatter
+def major_formatter(x, pos):
+    label = f"{-x:.0f}i" if x < 0 else f"{x:.0f}"
+    return label
+
+
 def apply_hexbin_plot_to_axes(
     ax,
     pred_df,
@@ -146,27 +157,36 @@ def apply_hexbin_plot_to_axes(
     """
     Apply hexbin plot to axes
     """
-    get_values, units = _get_value_metadata(value_name)
 
-    if value_name == "eigenvalues":
-        xlabel = f"eigenvalues ({units})"
-        ylabel = f"DFT eigenvalues ({units})"
-    elif value_name == "total":
-        xlabel = f"total correction ({units})"
-        ylabel = f"DFT total correction ({units})"
-    elif value_name == "freq":
-        import matplotlib.ticker as ticker
+    # special case for matching frequencies
+    if value_name == "all_matching_freqs":
+        units = "$cm^{-1}$"
+        xlabel = f"matching ML freq. ({units})"
+        ylabel = f"leftmost DFT freq. ({units})"
+        ml_values = get_all_matching_frequencies(pred_df, true_df)
+        vasp_values = get_frequencies(true_df)
+        ax.xaxis.set_major_formatter(major_formatter)
+        ax.yaxis.set_major_formatter(major_formatter)
 
-        @ticker.FuncFormatter
-        def major_formatter(x, pos):
-            label = f"{-x:.0f}i" if x < 0 else f"{x:.0f}"
-            return label
+    # normal case for eigenvalues, total, and freq
+    else:
+        get_values, units = _get_value_metadata(value_name)
 
-        xlabel = f"largest imaginary frequency ({units})"
-        ylabel = f"DFT corresponding frequency ({units})"
+        if value_name == "eigenvalues":
+            xlabel = f"eigenvalues ({units})"
+            ylabel = f"DFT eigenvalues ({units})"
+        elif value_name == "total":
+            xlabel = f"total correction ({units})"
+            ylabel = f"DFT total correction ({units})"
+        elif value_name == "freq":
+            xlabel = f"largest imaginary frequency ({units})"
+            ylabel = f"DFT corresponding frequency ({units})"
+            ax.xaxis.set_major_formatter(major_formatter)
+            ax.yaxis.set_major_formatter(major_formatter)
 
-    ml_values = get_values(pred_df)
-    vasp_values = get_values(true_df)
+        ml_values = get_values(pred_df)
+        vasp_values = get_values(true_df)
+
 
     min_max = (np.inf, -np.inf)
     min_max = (min(min(ml_values), min_max[0]), max(max(ml_values), min_max[1]))
@@ -198,10 +218,6 @@ def apply_hexbin_plot_to_axes(
 
     if include_parity_line:
         ax.plot(min_max, min_max, color='tab:gray', linestyle='--')
-
-    if value_name == "freq":
-        ax.xaxis.set_major_formatter(major_formatter)
-        ax.yaxis.set_major_formatter(major_formatter)
 
     mae = np.mean(np.abs(ml_values - vasp_values))
     # rmae = np.mean([np.abs((x-y)/y) for x, y in zip(ml_values, vasp_values)])# relative mean error
@@ -269,6 +285,56 @@ def get_frequencies(given_df):
         value = real - imag
         values_list.append(value)
     return np.array(values_list)
+
+def get_all_matching_frequencies(ml_df, dft_df):
+    values_list = []
+    for j, ml_row in tqdm(ml_df.iterrows(), total=len(ml_df), desc="Matching frequencies"):
+        dft_row = dft_df.iloc[j]
+
+        atoms = ml_row["atoms"]
+        free_indices = [i for i in range(len(atoms)) if not i in atoms.constraints[0].index]
+
+        # get ml frequencies and eigenvectors from ase
+        ml_hessian = ml_row["hessian"]
+        ml_vibdata = ase.vibrations.VibrationsData.from_2d(atoms, hessian_2d=ml_hessian, indices=free_indices)
+        ml_active_atoms = ml_vibdata._atoms[ml_vibdata.get_mask()]
+        ml_masses = ml_active_atoms.get_masses()
+        ml_mass_weights = np.repeat(ml_masses**-0.5, 3)
+        ml_omega2, ml_vectors = np.linalg.eigh(ml_mass_weights * ml_vibdata.get_hessian_2d() * ml_mass_weights[:, np.newaxis])
+        ml_freqs = ml_vibdata.get_frequencies()
+
+        # get dft frequencies and eigenvectors from ase
+        dft_hessian = dft_row["hessian"]
+        dft_vibdata = ase.vibrations.VibrationsData.from_2d(atoms, hessian_2d=dft_hessian, indices=free_indices)
+        dft_active_atoms = dft_vibdata._atoms[dft_vibdata.get_mask()]
+        dft_masses = dft_active_atoms.get_masses()
+        dft_mass_weights = np.repeat(dft_masses**-0.5, 3)
+        dft_omega2, dft_vectors = np.linalg.eigh(dft_mass_weights * dft_vibdata.get_hessian_2d() * dft_mass_weights[:, np.newaxis])
+        dft_freqs = dft_vibdata.get_frequencies()
+
+        # organize frequencies to match eigenvectors to dft eigenvectors
+        cost_matrix = np.array([[-np.abs(scipy.spatial.distance.cosine(vec_ml, vec_dft)-1) for vec_ml in ml_vectors] for vec_dft in dft_vectors])
+        row_indices, col_indices = scipy.optimize.linear_sum_assignment(cost_matrix)
+        matched_ml_freqs = ml_freqs[col_indices]
+        matched_ml_vectors = ml_vectors[col_indices]
+
+        pre_cost = [-np.abs(scipy.spatial.distance.cosine(vec_ml, vec_dft)-1) for vec_ml, vec_dft in zip(ml_vectors, dft_vectors)]
+        post_cost = [-np.abs(scipy.spatial.distance.cosine(vec_ml, vec_dft)-1) for vec_ml, vec_dft in zip(matched_ml_vectors, dft_vectors)]
+        # if not np.mean(pre_cost) == np.mean(post_cost):
+        #     print(f"{j}: {np.mean(pre_cost)} -> {np.mean(post_cost)}")
+        assert np.mean(post_cost) <= np.mean(pre_cost)
+
+        # sort matched frequencies according to leftmost dft, and take the corresponding ml frequency
+        sorted_args = np.argsort(np.array(dft_freqs) ** 2)
+        leftmost = matched_ml_freqs[sorted_args[0]]
+        real = np.real(leftmost)
+        imag = np.imag(leftmost)
+        value = real - imag
+        values_list.append(value)
+    
+    return np.array(values_list)
+
+
 
 
 def plot_mae_vs_key(

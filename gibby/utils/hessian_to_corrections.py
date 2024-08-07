@@ -12,7 +12,7 @@ def hessian_to_corrections(
     hessian_column_key: str,
     success_column_key: str = "success",
     atoms_column_key: str = "atoms",
-    st_conversion=1.239842e-4,
+    st_conversion=ase.units.invcm, # 1.239842e-4
     temperature=300,
     hessian_from_vasp=False,
     linear_scaling=None,
@@ -76,5 +76,6 @@ def hessian_to_corrections(
             results_dict["eigenvalues"].append([i for i in eigvalues])
             results_dict["eigenvectors"].append([i for i in eigvectors])
             results_dict["atoms"].append(atoms)
+            results_dict["hessian"].append(hessian)
 
     return pd.DataFrame(results_dict)
