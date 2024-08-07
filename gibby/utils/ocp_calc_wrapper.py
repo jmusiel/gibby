@@ -54,10 +54,13 @@ class OCPCalcWrapper(OCPCalculator):
         self.results["forces"] = self.results["forces"].astype(np.float32)
 
     def extract_hessian(self, atoms):
-        atoms.get_forces()
-        hessian = self.trainer.model.module.hessian.detach().cpu().numpy()
+        forces = atoms.get_forces()
+        hessian = self.trainer.model.module.hessian.detach()
+        denormed_hessian = self.trainer.normalizers["grad_target"].denorm(hessian)
+        hessian = hessian.detach().cpu().numpy()
+        denormed_hessian = denormed_hessian.detach().cpu().numpy()
         self.trainer.model.module.hessian = None
-        return hessian
+        return denormed_hessian
 
 
 # base_trainer overwrite for load_checkpoint
