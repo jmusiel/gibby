@@ -58,7 +58,7 @@ def main():
     from ocpmodels.common.relaxation.ase_utils import OCPCalculator
 
     checkpoint_path = (
-        "/home/jovyan/PythonLibraries/arkimede/checkpoints/eq2_31M_ec4_allmd.pt"
+        "/home/jovyan/checkpoints/eq2_31M_ec4_allmd.pt"
     )
     calc = OCPCalculator(checkpoint_path=checkpoint_path, cpu=False)
 

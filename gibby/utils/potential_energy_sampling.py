@@ -12,6 +12,13 @@ from ase.utils.filecache import get_json_cache
 from ase.optimize import BFGS
 from ase.thermochemistry import HarmonicThermo
 from scipy.interpolate import griddata
+import ase
+from itertools import product
+
+import numpy as np
+from ase.data import atomic_numbers, covalent_radii
+from scipy.optimize import fsolve
+
 
 # -------------------------------------------------------------------------------------
 # GET 1X1 SLAB CELL
@@ -192,7 +199,6 @@ def constrained_relaxations_with_rotations(
     position,
     calc,
     n_rotations=1,
-    distance=2.0,
     fix_com=False,
     index=0,
     optimizer=BFGS,
@@ -211,27 +217,23 @@ def constrained_relaxations_with_rotations(
         position (numpy.ndarray, list): position (x, y, z) of the adsorbate.
         calc (ase.calculators.Calculator): ase calculator.
         n_rotations (int, optional): number of rotations sampled. Defaults to 1.
-        distance (float, optional): distance of the adsorbate from the surface.
-        Defaults to 2.
         fix_com (bool, optional): fix centre of mass. Defaults to False.
         index (int, optional): index of the adsorbate to fix. Defaults to 0.
         optimizer (ase.optimize.Optimizer, optional): optimizer for constrained
         relaxation. Defaults to BFGS.
         kwargs_opt (dict, optional): dictionary of options for the optimizer.
-        Defaults to {}.
+            Defaults to {}.
         fmax (float, optional): maximum forces for convergence of constrained
-        relaxation. Defaults to 0.01.
+            relaxation. Defaults to 0.01.
         z_func (function, optional): function of x and y to use instead of the
-        adsorbate height. Defaults to None.
+            adsorbate height. Defaults to None.
         delta (float, optional): small length to calculate derivative of z_func
-        with respect to x and y. Defaults to 0.05.
+            with respect to x and y. Defaults to 0.05.
 
     Returns:
         ase.Atoms: slab + adsorbate atoms relaxed.
     """
-
     xx, yy, zz = position
-
     # Calculate rotation_matrix to rotate in the direction normal to the surface.
     if z_func is not None:
         zz = z_func(xx, yy)[0]
@@ -248,16 +250,19 @@ def constrained_relaxations_with_rotations(
 
     # Do multiple constrained optimizations with different initial rotations.
     atoms_list = []
+    if len(ads) == 1:
+        n_rotations = 1
     for rr in range(n_rotations):
+        energies = []
         slab_new = slab.copy()
         ads_new = ads.copy()
         ads_new.rotate(rr * 360 / n_rotations, "z")
         if rot_matrix is not None:
             ads_new.positions[:] = np.dot(ads_new.positions, rot_matrix.T)
-        ads_new.translate([xx, yy, zz + distance])
         atoms = constrained_relaxation(
             slab=slab_new,
             ads=ads_new,
+            site = position,
             calc=calc,
             index=index,
             fix_com=fix_com,
@@ -265,9 +270,11 @@ def constrained_relaxations_with_rotations(
             kwargs_opt=kwargs_opt,
             fmax=fmax,
         )
-        atoms_list.append(atoms)
+        if atoms is not None:
+            energies.append(atoms.get_potential_energy())
+            atoms_list.append(atoms)
 
-    index = np.argmin([atoms.get_potential_energy() for atoms in atoms_list])
+    index = np.argmin(energies)
 
     return atoms_list[index]
 
@@ -280,6 +287,7 @@ def constrained_relaxations_with_rotations(
 def constrained_relaxation(
     slab,
     ads,
+    site,
     calc,
     index=0,
     fix_com=False,
@@ -306,20 +314,27 @@ def constrained_relaxation(
     Returns:
         ase.Atoms: slab + adsorbate atoms relaxed.
     """
-
-    atoms = slab + ads
+    if fix_com is True:
+        mode = "com"
+    else:
+        mode = "binding_atom"
+    atoms = place_adsorbate_on_site(slab, ads, site, mode)
     indices = [aa.index for aa in atoms if aa.index >= len(slab)]
+    atoms.constraints = [FixAtoms(indices=range(len(slab)))]
 
     if fix_com is True:
         atoms.constraints.append(FixSubsetCom(indices=indices, mask=[1, 1, 0]))
     else:
         atoms.constraints.append(FixCartesian(a=indices[index], mask=[1, 1, 0]))
 
-    atoms.calc = calc
-    opt = optimizer(atoms=atoms, **kwargs_opt)
-    opt.run(fmax=fmax)
 
-    return atoms
+    atoms.calc = calc
+    try:
+        opt = optimizer(atoms=atoms, **kwargs_opt)
+        opt.run(fmax=fmax)
+        return atoms
+    except:
+        return None
 
 
 # -------------------------------------------------------------------------------------
@@ -335,7 +350,6 @@ class PotentialEnergySampling:
         calc,
         height=None,
         indices_surf=None,
-        distance=2.0,
         e_min=None,
         spacing=0.20,
         spacing_surrogate=0.05,
@@ -365,9 +379,6 @@ class PotentialEnergySampling:
             height (float, optional): height (z axis), in Angstrom, of the surface
                 atoms. Defaults to None.
             indices_surf (list, optional): list of indices of the surface atoms.
-            distance (float, optional): distance (in Angstrom) of the adsorbate
-                from the surface (centre of mass if fix_com=True, position of index N
-                of adsorbate otherwise). Defaults to 2.
             e_min (float, optional): minimum energy of the slab + adsorbate structure
                 (obtained, e.g., from relaxation on different adsorption sites or from
                 global optimization).
@@ -411,7 +422,6 @@ class PotentialEnergySampling:
         self.calc = calc
         self.height = height
         self.indices_surf = indices_surf
-        self.distance = distance
         self.e_min = e_min
         self.spacing = spacing
         self.spacing_surrogate = spacing_surrogate
@@ -490,6 +500,7 @@ class PotentialEnergySampling:
         # Do constrained relaxations.
         xye_points = xyz_points.copy()
         for ii, position in enumerate(xyz_points):
+            print(f"Constrained relaxation {ii}/{len(xyz_points)}")
             with self.cache.lock(f"{ii:04d}") as handle:
                 if handle is None:
                     xye_points[ii] = self.cache[f"{ii:04d}"]
@@ -500,7 +511,6 @@ class PotentialEnergySampling:
                     position=position,
                     calc=self.calc,
                     n_rotations=self.n_rotations,
-                    distance=self.distance,
                     fix_com=self.fix_com,
                     index=self.index,
                     optimizer=self.optimizer,
@@ -749,6 +759,208 @@ class FixSubsetCom(FixConstraint):
         }
 
 
-# -------------------------------------------------------------------------------------
-# END
-# -------------------------------------------------------------------------------------
+
+def place_adsorbate_on_site(
+    slab: ase.Atoms,
+    adsorbate: ase.Atoms,
+    site: np.ndarray,
+    mode: str = "com",
+    interstitial_gap: float = 0.1,
+):
+    """
+    Place the adsorbate at the given binding site.
+    """
+    adsorbate_c = adsorbate.copy()
+    slab_c = slab.copy()
+
+    binding_idx = None
+    if mode == "binding_atom":
+        binding_idx = np.random.choice(adsorbate.binding_indices)
+
+    # Translate adsorbate to binding site.
+    if mode == "com":
+        placement_center = adsorbate_c.get_center_of_mass()
+    elif mode == "binding_atom":
+        placement_center = adsorbate_c.positions[binding_idx]
+    else:
+        raise NotImplementedError
+
+    translation_vector = site - placement_center
+    adsorbate_c.translate(translation_vector)
+
+    # Translate the adsorbate by the normal so has no intersections
+    unit_normal = np.array([0,0,1])
+
+    scaled_normal = get_scaled_normal(
+        adsorbate_c,
+        slab_c,
+        site,
+        unit_normal,
+        interstitial_gap,
+    )
+    adsorbate_c.translate(scaled_normal * unit_normal)
+    adsorbate_slab_config = slab_c + adsorbate_c
+    tags = [2] * len(adsorbate_c)
+    final_tags = list(slab_c.get_tags()) + tags
+    adsorbate_slab_config.set_tags(final_tags)
+
+    # Set pbc and cell.
+    adsorbate_slab_config.cell = (
+        slab_c.cell
+    )
+    adsorbate_slab_config.pbc = [True, True, False]
+
+    return adsorbate_slab_config
+
+def find_combos_to_check(
+    adsorbate_c2: ase.Atoms,
+    slab_c2: ase.Atoms,
+    unit_normal: np.ndarray,
+    interstitial_gap: float,
+):
+    """
+    Find the pairs of surface and adsorbate atoms that would have an intersection event
+    while traversing the normal vector. For each pair, return pertanent information for
+    finding the point of intersection.
+    Args:
+        adsorbate_c2 (ase.Atoms): A copy of the adsorbate with coordinates at the centered site
+        slab_c2 (ase.Atoms): A copy of the slab with atoms wrapped s.t. things are centered
+            about the site
+        unit_normal (np.ndarray): the unit vector normal to the surface
+        interstitial_gap (float): the desired distance between the covalent radii of the
+            closest surface and adsorbate atom
+
+    Returns:
+        (list[lists]): each entry in the list corresponds to one pair to check. With the
+            following information:
+                [(adsorbate_idx, slab_idx), r_adsorbate_atom + r_slab_atom, slab_atom_position]
+    """
+    adsorbate_elements = adsorbate_c2.get_chemical_symbols()
+    slab_elements = slab_c2.get_chemical_symbols()
+    projected_points = get_projected_points(
+        adsorbate_c2, slab_c2, unit_normal
+    )
+
+    pairs = list(product(list(range(len(adsorbate_c2))), list(range(len(slab_c2)))))
+
+    combos_to_check = []
+    for combo in pairs:
+        distance = np.linalg.norm(
+            projected_points["ads"][combo[0]] - projected_points["slab"][combo[1]]
+        )
+        radial_distance = (
+            covalent_radii[atomic_numbers[adsorbate_elements[combo[0]]]]
+            + covalent_radii[atomic_numbers[slab_elements[combo[1]]]]
+        )
+        if distance <= (radial_distance + interstitial_gap):
+            combos_to_check.append(
+                [combo, radial_distance, slab_c2.positions[combo[1]]]
+            )
+    return combos_to_check
+
+def get_projected_points(adsorbate_c2: ase.Atoms, slab_c2: ase.Atoms, unit_normal: np.ndarray
+):
+    """
+    Find the x and y coordinates of each atom projected onto the surface plane.
+    Args:
+        adsorbate_c2 (ase.Atoms): A copy of the adsorbate with coordinates at the centered site
+        slab_c2 (ase.Atoms): A copy of the slab with atoms wrapped s.t. things are centered
+            about the site
+        unit_normal (np.ndarray): the unit vector normal to the surface
+
+    Returns:
+        (dict): {"ads": [[x1, y1], [x2, y2], ...], "slab": [[x1, y1], [x2, y2], ...],}
+    """
+    projected_points = {"ads": [], "slab": []}
+    point_on_surface = slab_c2.cell[0]
+    for atom_position in adsorbate_c2.positions:
+        v_ = atom_position - point_on_surface
+        projected_point = point_on_surface + (
+            v_
+            - (np.dot(v_, unit_normal) / np.linalg.norm(unit_normal) ** 2)
+            * unit_normal
+        )
+        projected_points["ads"].append(projected_point)
+
+    for atom_position in slab_c2.positions:
+        v_ = atom_position - point_on_surface
+        projected_point = point_on_surface + (
+            v_
+            - (np.dot(v_, unit_normal) / np.linalg.norm(unit_normal) ** 2)
+            * unit_normal
+        )
+        projected_points["slab"].append(projected_point)
+    return projected_points
+
+def get_scaled_normal(
+    adsorbate_c: ase.Atoms,
+    slab_c: ase.Atoms,
+    site: np.ndarray,
+    unit_normal: np.ndarray,
+    interstitial_gap: float = 0.1,
+):
+    """
+    Get the scaled normal that gives a proximate configuration without atomic
+    overlap by:
+        1. Projecting the adsorbate and surface atoms onto the surface plane.
+        2. Identify all adsorbate atom - surface atom combinations for which
+            an itersection when translating along the normal would occur.
+            This is where the distance between the projected points is less than
+            r_surface_atom + r_adsorbate_atom
+        3. Explicitly solve for the scaled normal at which the distance between
+            surface atom and adsorbate atom = r_surface_atom + r_adsorbate_atom +
+            interstitial_gap. This exploits the superposition of vectors and the
+            distance formula, so it requires root finding.
+
+    Assumes that the adsorbate's binding atom or center-of-mass (depending
+    on mode) is already placed at the site.
+
+    Args:
+        adsorbate_c (ase.Atoms): A copy of the adsorbate with coordinates at the site
+        slab_c (ase.Atoms): A copy of the slab
+        site (np.ndarray): the coordinate of the site
+        adsorbate_atoms (ase.Atoms): the translated adsorbate
+        unit_normal (np.ndarray): the unit vector normal to the surface
+        interstitial_gap (float): the desired distance between the covalent radii of the
+            closest surface and adsorbate atom
+    Returns:
+        (float): the magnitude of the normal vector for placement
+    """
+    # Center everthing about the site so we dont need to deal with pbc issues
+    slab_c2 = slab_c.copy()
+    cell_center = np.dot(np.array([0.5, 0.5, 0.5]), slab_c2.cell)
+    slab_c2.translate(cell_center - site)
+    slab_c2.wrap()
+
+    adsorbate_positions = adsorbate_c.get_positions()
+
+    adsorbate_c2 = adsorbate_c.copy()
+    adsorbate_c2.translate(cell_center - site)
+
+    # See which combos have a possible intersection event
+    combos = find_combos_to_check(
+        adsorbate_c2, slab_c2, unit_normal, interstitial_gap
+    )
+
+    # Solve for the intersections
+    def fun(x):
+        return (
+            (surf_pos[0] - (cell_center[0] + x * unit_normal[0] + u_[0])) ** 2
+            + (surf_pos[1] - (cell_center[1] + x * unit_normal[1] + u_[1])) ** 2
+            + (surf_pos[2] - (cell_center[2] + x * unit_normal[2] + u_[2])) ** 2
+            - (d_min + interstitial_gap) ** 2
+        )
+
+    if len(combos) > 0:
+        scaled_norms = []
+        for combo in combos:
+            closest_idxs, d_min, surf_pos = combo
+            u_ = adsorbate_positions[closest_idxs[0]] - site
+            n_scale = fsolve(fun, d_min * 3)
+            scaled_norms.append(n_scale[0])
+        return max(scaled_norms)
+    else:
+        # Comment(@brookwander): this is a kinda scary edge case
+        return (
+            0  # if there are no possible surface itersections, place it at the site
+        )
