@@ -335,6 +335,69 @@ def get_all_matching_frequencies(ml_df, dft_df):
     return np.array(values_list)
 
 
+def get_cosine_similarity_of_leftmost_eigenvector(ml_df, dft_df, eigmatching=False, all_vectors=False):
+    cossim_list = []
+    dft_freq_list = []
+    for j, ml_row in tqdm(ml_df.iterrows(), total=len(ml_df), desc="Getting cosine similarity of leftmost eigenvector"):
+        dft_row = dft_df.iloc[j]
+
+        atoms = ml_row["atoms"]
+        free_indices = [i for i in range(len(atoms)) if not i in atoms.constraints[0].index]
+
+        # get ml frequencies and eigenvectors from ase
+        ml_hessian = ml_row["hessian"]
+        ml_vibdata = ase.vibrations.VibrationsData.from_2d(atoms, hessian_2d=ml_hessian, indices=free_indices)
+        ml_active_atoms = ml_vibdata._atoms[ml_vibdata.get_mask()]
+        ml_masses = ml_active_atoms.get_masses()
+        ml_mass_weights = np.repeat(ml_masses**-0.5, 3)
+        ml_omega2, ml_vectors = np.linalg.eigh(ml_mass_weights * ml_vibdata.get_hessian_2d() * ml_mass_weights[:, np.newaxis])
+        ml_freqs = ml_vibdata.get_frequencies()
+        ml_sorted_args = np.argsort(np.array(ml_freqs) ** 2)
+        ml_freqs = ml_freqs[ml_sorted_args]
+        ml_vectors = ml_vectors[ml_sorted_args]
+
+        # get dft frequencies and eigenvectors from ase
+        dft_hessian = dft_row["hessian"]
+        dft_vibdata = ase.vibrations.VibrationsData.from_2d(atoms, hessian_2d=dft_hessian, indices=free_indices)
+        dft_active_atoms = dft_vibdata._atoms[dft_vibdata.get_mask()]
+        dft_masses = dft_active_atoms.get_masses()
+        dft_mass_weights = np.repeat(dft_masses**-0.5, 3)
+        dft_omega2, dft_vectors = np.linalg.eigh(dft_mass_weights * dft_vibdata.get_hessian_2d() * dft_mass_weights[:, np.newaxis])
+        dft_freqs = dft_vibdata.get_frequencies()
+        dft_sorted_args = np.argsort(np.array(dft_freqs) ** 2)
+        dft_freqs = dft_freqs[dft_sorted_args]
+        dft_vectors = dft_vectors[dft_sorted_args]
+
+        if eigmatching:
+            cost_matrix = np.array([[-np.abs(scipy.spatial.distance.cosine(vec_ml, vec_dft)-1) for vec_ml in ml_vectors] for vec_dft in dft_vectors])
+            row_indices, col_indices = scipy.optimize.linear_sum_assignment(cost_matrix)
+            matched_ml_freqs = ml_freqs[col_indices]
+            matched_ml_vectors = ml_vectors[col_indices]
+            ml_vectors = matched_ml_vectors
+            ml_freqs = matched_ml_freqs
+
+        if all_vectors:
+            cossim = [np.abs(scipy.spatial.distance.cosine(vec_ml, vec_dft)-1) for vec_ml, vec_dft in zip(ml_vectors, dft_vectors)]
+            cossim_list.extend(cossim)
+            dft_freq_all = np.real(dft_freqs) - np.imag(dft_freqs)
+            dft_freq_list.extend(dft_freq_all)
+        else: # leftmost only
+            # get the cosine similarity score of the leftmost eigenvector of the ml and dft hessians
+            cossim = np.abs(scipy.spatial.distance.cosine(ml_vectors[0], dft_vectors[0])-1)
+            cossim_list.append(cossim)
+            dft_leftmost = np.real(dft_freqs[0]) - np.imag(dft_freqs[0])
+            dft_freq_list.append(dft_leftmost)
+
+
+    # sort the cossim and dft_leftmost arrays by the magnitude of the dft leftmost frequency values
+    cossim_arr = np.array(cossim_list)
+    dft_freq_arr = np.array(dft_freq_list)
+    sorted_args = np.argsort(dft_freq_arr)
+    cossim_arr = cossim_arr[sorted_args]
+    dft_freq_arr = dft_freq_arr[sorted_args]
+
+    return cossim_arr, dft_freq_arr
+
 
 
 def plot_mae_vs_key(
