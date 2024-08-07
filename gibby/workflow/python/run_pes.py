@@ -2,6 +2,7 @@ from ase.vibrations import Vibrations
 from ase.thermochemistry import HarmonicThermo
 import argparse
 import pickle
+import numpy as np
 import os
 
 from ocpmodels.common.relaxation.ase_utils import OCPCalculator
@@ -13,31 +14,27 @@ if __name__ == "__main__":
     parser.add_argument("--sys_id", type=int)
     parser.add_argument("--input_file", type=str)
     parser.add_argument("--outdir", type=str)
+    parser.add_argument("--checkpoint_path", type=str)
 
     # Args with default values.
     parser.add_argument("--spacing", type=float, default=0.50)
     parser.add_argument("--spacing_surrogate", type=float, default=0.05)
     parser.add_argument("--reduce_cell", type=bool, default=True)
-    parser.add_argument(
-        "--distance", type=float, default=2.0
-    )  # TODO: get rid of this in favor of the oc-data approach?
     parser.add_argument("--fix_com", type=bool, default=True)
     parser.add_argument("--fmax", type=int, default=0.03)
     parser.add_argument(
-        "--n_rotations", type=int, default=1
-    )  # TODO: is this necessary? do we need rotations?
+        "--n_rotations", type=int, default=6
+    ) 
     parser.add_argument("--kwargs_opt", type=dict, default={})
     parser.add_argument("--scipy_integral", type=bool, default=False)
-    parser.add_argument("--trajectory", type=str, default="atoms_pes.traj")
     parser.add_argument("--temperature", type=int, default=300)
-    parser.add_argument("--show_plot", type=bool, default=False)
-    parser.add_argument("--save_plot", type=bool, default=True)
+    parser.add_argument("--show_plot", default=False, action='store_true')
+    parser.add_argument("--save_plot", default=False, action='store_true')
     parser.add_argument("--sklearn_model", type=None, default=None)
-    parser.add_argument("--checkpoint_path", type=int, default=0)
-    parser.add_argument("--gpu", type=bool, default=False)
+    parser.add_argument("--gpu", default=False, action='store_true')
     args = parser.parse_args()
 
-    calc = OCPCalculator(checkpoint_path=args.checkpoint_path, cpu=not args.gpu)
+    calc = OCPCalculator(checkpoint_path=str(args.checkpoint_path), cpu=not args.gpu)
     # TODO: add import of the adsorbate db to extract the adsorbate binding index? or is COM approach better?
 
     # Prep outputs.
@@ -60,7 +57,7 @@ if __name__ == "__main__":
     vib.run()
 
     # Harmonic approximation thermo.
-    thermo = HarmonicThermo(vib_energies=vib.get_energies())
+    thermo = HarmonicThermo(vib_energies=[e for e in vib.get_energies() if not np.iscomplex(e)])
     entropy = thermo.get_entropy(temperature=args.temperature, verbose=True)
     print(f"HarmonicThermo entropy: {entropy*1e3:+7.4f} [meV/K]")
     entry["harmonic_approx_entropy"] = entropy
@@ -71,7 +68,6 @@ if __name__ == "__main__":
         ads=adslab[indices_vib].copy(),
         calc=calc,
         indices_surf=[atom.index for atom in adslab if atom.tag == 1],
-        distance=args.distance,
         e_min=adslab.get_potential_energy(),
         spacing=args.spacing,
         spacing_surrogate=args.spacing_surrogate,
@@ -82,7 +78,7 @@ if __name__ == "__main__":
         fmax=args.fmax,
         kwargs_opt=args.kwargs_opt,
         scipy_integral=args.scipy_integral,
-        trajectory=args.trajectory,
+        trajectory=os.path.join(outdir, "all_min_e_relaxed_systems.traj"),
     )
     pes.clean(empty_files=True)
     pes.run()

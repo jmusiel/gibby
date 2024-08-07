@@ -4,7 +4,7 @@ metadata:
   name: "run-pes"
   namespace: brook-wander
 spec:
-  completions: 600?
+  completions: 100
   parallelism: 8
   completionMode: Indexed
   template:
@@ -26,8 +26,8 @@ spec:
         - /bin/bash
         - -c
         args:
-        - echo ${JOB_COMPLETION_INDEX} &&
-          python /home/jovyan/gibby/gibby/workflow/python/run_pes.py --gpu --sys_id ${JOB_COMPLETION_INDEX} --input_file /home/jovyan/shared-scratch/Brook/cpes/inputs.pkl --output_file /home/jovyan/shared-scratch/Brook/cpes/outputs/
+        - echo ${JOB_COMPLETION_INDEX} && cd gibby && python setup.py develop && pip install e3nn && mkdir ../shared-scratch/Brook/cpes/gibbs_proj/outputs/${JOB_COMPLETION_INDEX} && cd ../shared-scratch/Brook/cpes/gibbs_proj/outputs/${JOB_COMPLETION_INDEX} &&
+          python /home/jovyan/gibby/gibby/workflow/python/run_pes.py --gpu --save_plot --sys_id ${JOB_COMPLETION_INDEX} --input_file /home/jovyan/shared-scratch/Brook/gibbs_proj/cpes/inputs.pkl --outdir /home/jovyan/shared-scratch/Brook/cpes/gibbs_proj/outputs/ --checkpoint_path /home/jovyan/checkpoints/eq2_31M_ec4_allmd.pt
         image: 'ulissigroup/kubeflow_vasp:extras-notebook'
         name: 'sample-load'
         resources:
@@ -41,8 +41,13 @@ spec:
         volumeMounts:
         - mountPath: /home/jovyan/shared-scratch/
           name: shared-scratch
+        - mountPath: /home/jovyan/
+          name: workspace-inference
       volumes:
       - name: shared-scratch
         persistentVolumeClaim:
           claimName: shared-scratch
+      - name: workspace-inference
+        persistentVolumeClaim:
+          claimName: workspace-inference
       priorityClassName: default-priority
