@@ -210,3 +210,95 @@ def get_mae_over_mean(
     return df_both_no_anom["ml_abs_error_over_mean"].mean(), df_both_no_anom["vasp_abs_error_over_mean"].mean(), df_both_no_anom
 
 
+if __name__ == "__main__":
+
+    from gibby.utils.hessian_to_corrections import hessian_to_corrections, get_mae_over_mean, get_mean_corrections
+    import pickle
+
+    with open('/home/jovyan/shared-scratch/joe/for_brook/hessian_pickles/rerun_val_rev3.pkl', 'rb') as f:
+        val_df = pickle.load(f)
+        
+    drop_an = True
+
+    val_dict = {
+        "DFT": hessian_to_corrections(val_df, hessian_column_key="hessian", hessian_from_vasp=True, drop_anomalies=drop_an),
+        "ML":{
+            "fine tuned EQ2": hessian_to_corrections(val_df, hessian_column_key="checkpoint_12", hessian_from_vasp=False, drop_anomalies=drop_an),
+            "EQ2 153M": hessian_to_corrections(val_df, hessian_column_key="eq2_153M_ec4_allmd", hessian_from_vasp=False, drop_anomalies=drop_an),
+        },
+        "mean_ads": {
+            "Mean per ads. EQ2": get_mean_corrections(val_df, hessian_column_key="eq2_153M_ec4_allmd", hessian_from_vasp=False),
+            "Mean per ads. VASP": get_mean_corrections(val_df, hessian_column_key="hessian", hessian_from_vasp=True),
+        },
+        "name": "Local minimum",
+    }
+    val_mae_over_mean = get_mae_over_mean(df=val_df, vasp_key="hessian", ml_key="eq2_153M_ec4_allmd")
+    print(f"brook's ml: {val_mae_over_mean[0]} brook's vasp: {val_mae_over_mean[1]}")
+
+
+    # # make table
+    import pandas as pd
+    from collections import defaultdict
+    import json
+    from tabulate import tabulate
+    import numpy as np
+
+
+    table_dict = defaultdict(list)
+    for key, values in val_dict["ML"].items():
+        dft_values = val_dict["DFT"]
+
+        table_dict["Method"].append(key)
+        table_dict["ZPE"].append(np.mean(np.abs(values["zpe"] - dft_values["zpe"])))
+        table_dict["TS"].append(np.mean(np.abs(values["ts"] - dft_values["ts"])))
+        table_dict["C$\mathrm{_p}$"].append(np.mean(np.abs(values["deltah"] - dft_values["deltah"])))
+        table_dict["Total Gibbs"].append(np.mean(np.abs(values["total"] - dft_values["total"])))  
+
+    for key, values in val_dict["mean_ads"].items():
+        dft_values = val_dict["DFT"]
+
+        table_dict["Method"].append(key)
+        table_dict["ZPE"].append(np.mean(np.abs(values["zpe"] - dft_values["zpe"])))
+        table_dict["TS"].append(np.mean(np.abs(values["ts"] - dft_values["ts"])))
+        table_dict["C$\mathrm{_p}$"].append(np.mean(np.abs(values["deltah"] - dft_values["deltah"])))
+        table_dict["Total Gibbs"].append(np.mean(np.abs(values["total"] - dft_values["total"])))  
+
+    df = pd.DataFrame(table_dict)
+
+    table_string = tabulate(
+        df,
+        headers="keys",
+        tablefmt="latex_booktabs",
+        floatfmt=".3f",
+        showindex=False,
+    )
+    table_string = table_string.replace("\\^{}", "^")
+    table_string = table_string.replace("\\$", "$")
+    table_string = table_string.replace("\\_", "_")
+    table_string = table_string.replace("\\{", "{")
+    table_string = table_string.replace("\\}", "}")
+    table_string = table_string.replace("\\textbackslash{}", "\\")
+
+    # add subheader of eV units
+    second_row_list = table_string.split("\n")[2].split("&")
+    for i in range(len(second_row_list)):
+        second_row_list[i] = " "*len(second_row_list[i])
+    subheader = "$[eV]$"
+    second_row_list[1] = second_row_list[1][:-(len(subheader))] + subheader
+    second_row_list[2] = second_row_list[2][:-(len(subheader))] + subheader
+    second_row_list[3] = second_row_list[3][:-(len(subheader))] + subheader
+    second_row_list[4] = second_row_list[4][:-(len(subheader))-2] + subheader
+    second_row = "&".join(second_row_list) + "\\\\"
+    table_string = table_string.replace("\\midrule",second_row + "\n\\midrule")
+
+    table_string = table_string.replace(
+        "\\toprule", 
+        "" + \
+            "\\toprule \n" + \
+            "\\multicolumn{5}{c}{\\textbf{Local Minimum Correction MAE}} \\\\ \n" + \
+            "\\midrule"
+    ) 
+
+    print()
+    print(table_string)
+    print()
