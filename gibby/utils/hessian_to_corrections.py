@@ -133,3 +133,80 @@ def get_mean_corrections(
     df_output["ts"] = correction_df.apply(lambda row: lookup_mean[row.adsorbate]["ts"], axis=1)
 
     return df_output
+
+
+def get_mae_over_mean(
+    df:pd.DataFrame,
+    vasp_key: str,
+    ml_key: str,
+    success_column_key: str = "success",
+    no_anomaly_column_str: str = "no_anomaly",
+    atoms_column_key: str = "atoms",
+    st_conversion=ase.units.invcm, # 1.239842e-4
+    temperature=300,
+    ):
+    """
+    Get the mean absolute error when assuming the mean value per adsorbate for
+    ML predictions.
+
+    Args:
+        df: pd.DataFrame
+            The dataframe with the metadata, VASP values, and ML predictions.
+        vasp_key: str
+            The column key for the VASP values.
+        ml_key: str
+            The column key for the ML predictions.
+        success_column_key: str
+            The column key for the success column.
+        no_anomaly_column_str: str
+            The column key for the anomaly column. Should be True if there are no anomalies.
+        atoms_column_key: str
+            The column key for the atoms column.
+        st_conversion: float
+            The conversion factor to convert cm^-1 to eV.
+        temperature: float
+            The temperature in Kelvin at which the Gibbs corrections should be assessed.
+
+    Returns:
+        float: The mean absolute error when assuming the mean value per adsorbate for
+        ML predictions.
+        float: The mean absolute error when assuming the mean value per adsorbate for
+        the VASP values.
+        pd.DataFrame: The dataframe with the mean values per adsorbate.
+    """
+    # Get corrections
+    df_ml = hessian_to_corrections(df, hessian_column_key = ml_key, success_column_key = success_column_key, atoms_column_key = atoms_column_key, st_conversion = st_conversion, temperature = temperature)
+    df_vasp = hessian_to_corrections(df, hessian_column_key = vasp_key, success_column_key = success_column_key, atoms_column_key = atoms_column_key, st_conversion = st_conversion, temperature = temperature, hessian_from_vasp = True)
+
+    # Clean up meatadata
+    cols = df.columns
+    cols_to_keep = ['mapping_idx', success_column_key, 'frequencies', 'E', atoms_column_key, 'random_id', no_anomaly_column_str, 'mpid', 'miller', 'shift', 'top', 'adsorbate', 'site', 'formula', 'stoichiometry', 'distribution']
+    cols_remove = [col for col in cols if col not in cols_to_keep]
+    df_meta = df.drop(columns = cols_remove)
+
+    # Merge metadata and the ml and vasp corrections
+    df_both = df_ml.merge(df_vasp, left_on = "random_id", right_on = "random_id", suffixes=('_ml', '_vasp'))
+    df_both = df_both.merge(df_meta, left_on = "random_id", right_on = "random_id")
+    df_both["ml_abs_error"] = abs(df_both.total_vasp - df_both.total_ml)
+
+    # Get the mean value per adsorbate
+    df_both_no_anom = df_both[df_both[no_anomaly_column_str]].copy()
+
+    mean_vals_vasp = df_both_no_anom.groupby("adsorbate").agg({"total_vasp": "mean", "zpe_vasp": "mean", "deltah_vasp": "mean", "ts_vasp": "mean"}).reset_index().to_dict(orient="records")
+    lookup_mean_vasp = {}
+    for entry in mean_vals_vasp:
+        lookup_mean_vasp[entry["adsorbate"]] = (entry["total_vasp"], entry["zpe_vasp"], entry["deltah_vasp"], entry["ts_vasp"])
+
+    mean_vals_ml = df_both_no_anom.groupby("adsorbate").agg({"total_ml": "mean", "zpe_ml": "mean", "deltah_ml": "mean", "ts_ml": "mean"}).reset_index().to_dict(orient="records")
+    lookup_mean_ml = {}
+    for entry in mean_vals_ml:
+        lookup_mean_ml[entry["adsorbate"]] = (entry["total_ml"], entry["zpe_ml"], entry["deltah_ml"], entry["ts_ml"])
+
+    # Get the mean absolute error when assuming the mean value per adsorbate
+    df_both_no_anom["vasp_abs_error_over_mean"] = df_both_no_anom.apply(lambda row: abs(lookup_mean_vasp[row.adsorbate][0] - row.total_vasp), axis=1)
+    df_both_no_anom["ml_abs_error_over_mean"] = df_both_no_anom.apply(lambda row: abs(lookup_mean_ml[row.adsorbate][0] - row.total_ml), axis=1)
+    # Note you can add each component if you want.
+
+    return df_both_no_anom["ml_abs_error_over_mean"].mean(), df_both_no_anom["vasp_abs_error_over_mean"].mean(), df_both_no_anom
+
+
