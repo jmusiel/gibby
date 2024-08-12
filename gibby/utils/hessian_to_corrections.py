@@ -209,8 +209,10 @@ def get_mae_over_mean(
 
     return df_both_no_anom["ml_abs_error_over_mean"].mean(), df_both_no_anom["vasp_abs_error_over_mean"].mean(), df_both_no_anom
 
-
+# REMOVE ME later:
+# for testing
 if __name__ == "__main__":
+    # load the dataframe and convert to corrections dataframes
 
     from gibby.utils.hessian_to_corrections import hessian_to_corrections, get_mae_over_mean, get_mean_corrections
     import pickle
@@ -232,18 +234,21 @@ if __name__ == "__main__":
         },
         "name": "Local minimum",
     }
+
+    # check the mean absolute error over mean from get_mae_over_mean
     val_mae_over_mean = get_mae_over_mean(df=val_df, vasp_key="hessian", ml_key="eq2_153M_ec4_allmd")
     print(f"brook's ml: {val_mae_over_mean[0]} brook's vasp: {val_mae_over_mean[1]}")
 
 
-    # # make table
+    # make the table of results
     import pandas as pd
     from collections import defaultdict
     import json
     from tabulate import tabulate
     import numpy as np
 
-
+    # iterate over the dictionary of corrections from different sources
+    # calculate the MAEs by taking the mean of the absolute value of the difference between the DFT and ML correction values
     table_dict = defaultdict(list)
     for key, values in val_dict["ML"].items():
         dft_values = val_dict["DFT"]
@@ -265,6 +270,7 @@ if __name__ == "__main__":
 
     df = pd.DataFrame(table_dict)
 
+    # print the table
     table_string = tabulate(
         df,
         headers="keys",
