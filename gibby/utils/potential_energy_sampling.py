@@ -14,16 +14,40 @@ from ase.thermochemistry import HarmonicThermo
 from scipy.interpolate import griddata
 import ase
 from itertools import product
+from ase.calculators.calculator import Calculator
 
 import numpy as np
 from ase.data import atomic_numbers, covalent_radii
 from scipy.optimize import fsolve
+import os
 
 
 # -------------------------------------------------------------------------------------
 # GET 1X1 SLAB CELL
 # -------------------------------------------------------------------------------------
+class FakeCalculator(Calculator):
+    @staticmethod
+    def get_potential_energy(self,):
+        return np.nan
+    @staticmethod
+    def get_forces(self,):
+        return np.array([np.nan])
 
+def set_all_hookean(atoms, add_cutoffs=0.1, add_bond_thr=1., k=10.):
+    from ase.neighborlist import build_neighbor_list, natural_cutoffs
+    from ase.constraints import Hookean
+
+    cutoffs = np.array(natural_cutoffs(atoms=atoms))
+    nl = build_neighbor_list(
+        atoms=atoms,
+        cutoffs=cutoffs+add_cutoffs,
+        self_interaction=False,
+        bothways=False,
+    )
+    bonds = list(nl.get_connectivity_matrix().keys())
+    for a1, a2 in bonds:
+        rt = cutoffs[a1]+cutoffs[a2]+add_bond_thr
+        atoms.constraints.append(Hookean(a1=a1, a2=a2, k=k, rt=rt))
 
 def get_1x1_slab_cell(atoms, symprec=1e-7, repetitions=None):
     """Get the 1x1 cell of an ase.Atoms object by checking the translational
@@ -200,7 +224,7 @@ def constrained_relaxations_with_rotations(
     calc,
     n_rotations=1,
     fix_com=False,
-    index=0,
+    binding_index=None,
     optimizer=BFGS,
     kwargs_opt={},
     fmax=0.01,
@@ -264,19 +288,23 @@ def constrained_relaxations_with_rotations(
             ads=ads_new,
             site = position,
             calc=calc,
-            index=index,
+            binding_index=binding_index,
             fix_com=fix_com,
             optimizer=optimizer,
             kwargs_opt=kwargs_opt,
             fmax=fmax,
         )
-        if atoms is not None:
-            energies.append(atoms.get_potential_energy())
-            atoms_list.append(atoms)
 
-    index = np.argmin(energies)
+        energies.append(atoms.get_potential_energy())
+        atoms_list.append(atoms)
 
-    return atoms_list[index]
+    energies_no_nan = [energy for energy in energies if not np.isnan(energy)]
+    atoms_list_no_nan = [atoms for idx, atoms in enumerate(atoms_list) if not np.isnan(energies[idx])]
+    if len(energies_no_nan) == 0:
+        return atoms_list[0]
+    
+    index = np.argmin(energies_no_nan)
+    return atoms_list_no_nan[index]
 
 
 # -------------------------------------------------------------------------------------
@@ -289,7 +317,7 @@ def constrained_relaxation(
     ads,
     site,
     calc,
-    index=0,
+    binding_index=None,
     fix_com=False,
     optimizer=BFGS,
     kwargs_opt={},
@@ -318,23 +346,27 @@ def constrained_relaxation(
         mode = "com"
     else:
         mode = "binding_atom"
-    atoms = place_adsorbate_on_site(slab, ads, site, mode)
+    atoms = place_adsorbate_on_site(slab, ads, site, mode, binding_index = binding_index)
     indices = [aa.index for aa in atoms if aa.index >= len(slab)]
     atoms.constraints = [FixAtoms(indices=range(len(slab)))]
 
     if fix_com is True:
         atoms.constraints.append(FixSubsetCom(indices=indices, mask=[1, 1, 0]))
     else:
-        atoms.constraints.append(FixCartesian(a=indices[index], mask=[1, 1, 0]))
+        atoms.constraints.append(FixCartesian(a=indices[binding_index], mask=[1, 1, 0]))
 
 
     atoms.calc = calc
     try:
         opt = optimizer(atoms=atoms, **kwargs_opt)
         opt.run(fmax=fmax)
-        return atoms
+
     except:
-        return None
+        print("A relaxation failed.")
+        new_calc = FakeCalculator()
+        atoms.calc = new_calc
+        
+    return atoms
 
 
 # -------------------------------------------------------------------------------------
@@ -360,7 +392,7 @@ class PotentialEnergySampling:
         border=3.0,
         n_rotations=1,
         fix_com=False,
-        index=0,
+        binding_index=0,
         fmax=0.01,
         optimizer=BFGS,
         kwargs_opt={},
@@ -432,7 +464,7 @@ class PotentialEnergySampling:
         self.border = border
         self.n_rotations = n_rotations
         self.fix_com = fix_com
-        self.index = index
+        self.binding_index = binding_index
         self.fmax = fmax
         self.optimizer = optimizer
         self.kwargs_opt = kwargs_opt
@@ -444,7 +476,7 @@ class PotentialEnergySampling:
         if fix_com is True:
             ads_pos = self.ads.get_center_of_mass()
         else:
-            ads_pos = self.ads[index].position
+            ads_pos = self.ads[binding_index].position
         self.ads.translate(-ads_pos)
         if all_hookean is True:
             set_all_hookean(self.ads)
@@ -511,9 +543,9 @@ class PotentialEnergySampling:
         self.prepare()
     
         # Do constrained relaxations.
-        xye_points = xyz_points.copy()
-        for ii, position in enumerate(xyz_points):
-            print(f"Constrained relaxation {ii}/{len(xyz_points)}")
+        xye_points = self.xyz_points.copy()
+        for ii, position in enumerate(self.xyz_points):
+            print(f"Constrained relaxation {ii+1}/{len(self.xyz_points)}")
             with self.cache.lock(f"{ii:04d}") as handle:
                 if handle is None:
                     xye_points[ii] = self.cache[f"{ii:04d}"]
@@ -525,7 +557,7 @@ class PotentialEnergySampling:
                     calc=self.calc,
                     n_rotations=self.n_rotations,
                     fix_com=self.fix_com,
-                    index=self.index,
+                    binding_index=self.binding_index,
                     optimizer=self.optimizer,
                     kwargs_opt=self.kwargs_opt,
                     fmax=self.fmax,
@@ -544,9 +576,10 @@ class PotentialEnergySampling:
                 if world.rank == 0:
                     handle.save(xye_points[ii])
 
-        self.xye_points = xye_points
+        valid_xyz_points = np.array([xye_point for xye_point in xye_points if not np.isnan(xye_point[2])])
+        self.xye_points = valid_xyz_points
         self.xye_points_ext = extend_xyz_points(
-            xyz_points=xye_points,
+            xyz_points=valid_xyz_points,
             cell=self.cell,
             border=self.border,
         )
@@ -565,19 +598,21 @@ class PotentialEnergySampling:
         assert len(atoms_list) == len(self.xyz_points)
         
         # Read the energies.
-        xye_points = self.xyz_points.copy()
+        valid_xyz_points = []
         for ii, position in enumerate(self.xyz_points):
-            xye_points[ii, 2] = atoms_list[ii].get_potential_energy()
-        
-        self.xye_points = xye_points
+            xye_points[ii, 2] 
+            e = atoms_list[ii].get_potential_energy()
+            if not np.isnan(e):
+                valid_xyz_points.append([xyz_points[ii,0], xyz_points[ii,1], e])
+        valid_xyz_points = np.array(valid_xyz_points)
+        self.xye_points = valid_xyz_points
         self.xye_points_ext = extend_xyz_points(
-            xyz_points=xye_points,
+            xyz_points=valid_xyz_points,
             cell=self.cell,
             border=self.border,
         )
         self.es_grid = None
-        
-        return xye_points
+        return valid_xyz_points
 
     def clean(self, empty_files=False):
         """Remove json files."""
@@ -611,6 +646,50 @@ class PotentialEnergySampling:
             z_func=self.e_func,
         )
 
+    def make_surrogate_pes_plotly(self):
+        """Save 2D plot of PES to file."""
+        import plotly.graph_objects as go
+
+        if self.es_grid is None:
+            self.get_meshgrid_surrogate()
+        print(np.shape(self.xs_grid), np.shape(self.ys_grid), np.shape(self.es_grid))
+        
+        trace_main = go.Surface(x=self.xs_grid, y=self.ys_grid, z=self.es_grid)
+        xs_grid = self.xs_grid
+        ys_grid = self.ys_grid
+        es_grid = self.es_grid
+        proj_z=lambda xs_grid,ys_grid,es_grid: es_grid #projection in the z-direction
+        colorsurfz=proj_z(xs_grid,ys_grid,es_grid)
+        z_offset=(np.min(es_grid)-2)*np.ones(es_grid.shape)
+
+        layout = go.Layout(
+                autosize=False,
+                width=700,
+                height=600,
+                )
+
+        tracez = go.Surface(z=list(z_offset),
+                x=list(xs_grid),
+                y=list(ys_grid),
+                showlegend=False,
+                showscale=False,
+                surfacecolor=colorsurfz,
+               )
+        data = [trace_main, tracez] 
+        fig = go.Figure(data=data, layout=layout)
+        return fig
+
+    def show_surrogate_pes_plotly(self):
+        fig = self.make_surrogate_pes_plotly()
+        fig.show()
+
+    def save_surrogate_pes_plotly(self, filename, filepath):
+        fig = self.make_surrogate_pes_plotly()
+        fig.write_html(os.path.join(filepath, filename + '.html'))
+        fig.write_image(os.path.join(filepath, filename + '.png'))
+
+
+
     def save_surrogate_pes(self, filename="pes.png"):
         """Save 2D plot of PES to file."""
         import matplotlib.pyplot as plt
@@ -619,7 +698,7 @@ class PotentialEnergySampling:
             self.get_meshgrid_surrogate()
         plt.pcolor(self.xs_grid, self.ys_grid, self.es_grid)
         plt.savefig(filename)
-
+    
     def show_surrogate_pes(self):
         """Show 3D plot of PES function."""
         import matplotlib.pyplot as plt
@@ -762,37 +841,37 @@ class FixSubsetCom(FixConstraint):
     """Constraint class for fixing the center of mass of a subset of atoms."""
 
     def __init__(self, indices, mask=(True, True, True)):
-        self.index = np.asarray(indices, int)
+        self.binding_index = np.asarray(indices, int)
         self.mask = np.asarray(mask, bool)
 
     def get_removed_dof(self, atoms):
         return self.mask.sum()
 
     def adjust_positions(self, atoms, new):
-        masses = atoms.get_masses()[self.index]
-        old_cm = atoms[self.index].get_center_of_mass()
-        new_cm = masses @ new[self.index] / masses.sum()
+        masses = atoms.get_masses()[self.binding_index]
+        old_cm = atoms[self.binding_index].get_center_of_mass()
+        new_cm = masses @ new[self.binding_index] / masses.sum()
         diff = old_cm - new_cm
         diff *= self.mask
         new += diff
 
     def adjust_momenta(self, atoms, momenta):
         """Adjust momenta so that the center-of-mass velocity is zero."""
-        masses = atoms.get_masses()[self.index]
-        velocity_com = momenta[self.index].sum(axis=0) / masses.sum()
+        masses = atoms.get_masses()[self.binding_index]
+        velocity_com = momenta[self.binding_index].sum(axis=0) / masses.sum()
         velocity_com *= self.mask
-        momenta[self.index] -= masses[:, None] * velocity_com
+        momenta[self.binding_index] -= masses[:, None] * velocity_com
 
     def adjust_forces(self, atoms, forces):
-        masses = atoms.get_masses()[self.index]
-        lmd = masses @ forces[self.index] / sum(masses**2)
+        masses = atoms.get_masses()[self.binding_index]
+        lmd = masses @ forces[self.binding_index] / sum(masses**2)
         lmd *= self.mask
-        forces[self.index] -= masses[:, None] * lmd
+        forces[self.binding_index] -= masses[:, None] * lmd
 
     def todict(self):
         return {
             "name": self.__class__.__name__,
-            "kwargs": {"indices": self.index.tolist(), "mask": self.mask.tolist()},
+            "kwargs": {"indices": self.binding_index.tolist(), "mask": self.mask.tolist()},
         }
 
 
@@ -803,6 +882,7 @@ def place_adsorbate_on_site(
     site: np.ndarray,
     mode: str = "com",
     interstitial_gap: float = 0.1,
+    binding_index: int = None,
 ):
     """
     Place the adsorbate at the given binding site.
@@ -810,18 +890,13 @@ def place_adsorbate_on_site(
     adsorbate_c = adsorbate.copy()
     slab_c = slab.copy()
 
-    binding_idx = None
-    if mode == "binding_atom":
-        binding_idx = np.random.choice(adsorbate.binding_indices)
-
     # Translate adsorbate to binding site.
     if mode == "com":
         placement_center = adsorbate_c.get_center_of_mass()
     elif mode == "binding_atom":
-        placement_center = adsorbate_c.positions[binding_idx]
+        placement_center = adsorbate_c.positions[binding_index]
     else:
         raise NotImplementedError
-
     translation_vector = site - placement_center
     adsorbate_c.translate(translation_vector)
 

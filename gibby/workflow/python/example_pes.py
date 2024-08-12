@@ -26,15 +26,15 @@ def main():
     distance = 2.
     all_hookean = True
     fix_com = True
-    index = 0
+    binding_index = 0
     fmax = 0.03
     n_rotations = 1
     kwargs_opt = {}
     scipy_integral = False
     trajectory = "atoms_pes.traj"
     temperature = 300 # [K]
-    show_plot = False
-    save_plot = True
+    show_plot = True
+    save_plot = False
     sklearn_model = None
     entropies_plot = True
 
@@ -48,12 +48,20 @@ def main():
     slab = fcc111('Pt', size=(3, 3, 4), vacuum=6, a=3.92)
     indices = [aa.index for aa in slab]
     slab.constraints = FixAtoms(indices=indices)
-    ads = Atoms("CO", positions=[[0., 0., 0.], [0., 0., 1.3]])
+    positions = [
+        [0., 0., +1.6],
+        [0., 0., +0.6],
+        [-1.1, 0., 0.],
+        [+1.1, 0., 0.],
+    ]
+    ads = Atoms("HCOO", positions=positions)
     indices_surf = range(27, 36)
-    indices_site = [27, 28, 30]
+    indices_site = [27, 28]
+    # ads = Atoms("CO", positions=[[0., 0., 0.], [0., 0., 1.3]])
+    # indices_surf = range(27, 36)
+    # indices_site = [27, 28, 30]
     
     # Ase calculator.
-<<<<<<< HEAD
     from ocpmodels.common.relaxation.ase_utils import OCPCalculator
 
     checkpoint_path = (
@@ -61,17 +69,6 @@ def main():
     )
     calc = OCPCalculator(checkpoint_path=checkpoint_path, cpu=False)
 
-=======
-    if read_trajectory is True:
-        calc = None
-    else:
-        from ocpmodels.common.relaxation.ase_utils import OCPCalculator
-        checkpoint_path = (
-            "/home/jovyan/PythonLibraries/arkimede/checkpoints/eq2_31M_ec4_allmd.pt"
-        )
-        calc = OCPCalculator(checkpoint_path=checkpoint_path, cpu=False)
-    
->>>>>>> ac866497c9d4938aed51a05d713b18cff36b3e4b
     # Add adsorbate.
     slab_opt = slab.copy()
     ads_opt = ads.copy()
@@ -114,7 +111,7 @@ def main():
         reduce_cell=reduce_cell,
         n_rotations=n_rotations,
         fix_com=fix_com,
-        index=index,
+        binding_index=binding_index,
         fmax=fmax,
         kwargs_opt=kwargs_opt,
         scipy_integral=scipy_integral,
@@ -130,10 +127,10 @@ def main():
     print(f"PotentialEnergySampling entropy: {entropy*1e3:+7.4f} [meV/K]")
     
     if show_plot is True:
-        pes.show_surrogate_pes()
+        pes.show_surrogate_pes_plotly()
     
-    if save_plot is True:
-        pes.save_surrogate_pes(filename="pes.png")
+    # if save_plot is True:
+    #     pes.save_surrogate_pes(filename="pes.png")
 
     # Potential Energy Sampling thermo.
     thermo_pes = PESThermo(
@@ -143,13 +140,13 @@ def main():
     entropy = thermo_pes.get_entropy(temperature=temperature, verbose=True)
     print(f"PESThermo entropy: {entropy*1e3:+7.4f} [meV/K]")
     
-    if entropies_plot is True:
-        from gibby.utils.potential_energy_sampling import plot_entropies
-        plot_entropies(
-            thermo_dict={"HA": thermo_ha, "PES": thermo_pes},
-            temperature_range=[200, 1000],
-            filename="entropies.png",
-        )
+    # if entropies_plot is True:
+    #     from gibby.utils.potential_energy_sampling import plot_entropies
+    #     plot_entropies(
+    #         thermo_dict={"HA": thermo_ha, "PES": thermo_pes},
+    #         temperature_range=[200, 1000],
+    #         filename="entropies.png",
+    #     )
 
 # -------------------------------------------------------------------------------------
 # IF NAME MAIN

@@ -23,7 +23,7 @@ if __name__ == "__main__":
     parser.add_argument("--fix_com", type=bool, default=True)
     parser.add_argument("--fmax", type=int, default=0.03)
     parser.add_argument(
-        "--n_rotations", type=int, default=6
+        "--n_rotations", type=int, default=1
     ) 
     parser.add_argument("--kwargs_opt", type=dict, default={})
     parser.add_argument("--scipy_integral", type=bool, default=False)
@@ -35,12 +35,12 @@ if __name__ == "__main__":
     args = parser.parse_args()
 
     calc = OCPCalculator(checkpoint_path=str(args.checkpoint_path), cpu=not args.gpu)
-    # TODO: add import of the adsorbate db to extract the adsorbate binding index? or is COM approach better?
 
     # Prep outputs.
     os.makedirs(args.outdir, exist_ok=True)
     outdir = os.path.join(args.outdir, f"{args.sys_id}")
     os.makedirs(outdir, exist_ok=True)
+    print(f"results will be saved at {outdir}")
 
     entry = {}
 
@@ -49,12 +49,13 @@ if __name__ == "__main__":
         adslabs = pickle.load(f)
     adslab = adslabs[args.sys_id]
     adslab.calc = calc
-
+    
     # Run vibration calculation.
     indices_vib = [atom.index for atom in adslab if atom.tag == 2]
     vib = Vibrations(atoms=adslab, indices=indices_vib, delta=0.0075, nfree=2)
     vib.clean(empty_files=True)
     vib.run()
+    
 
     # Harmonic approximation thermo.
     thermo = HarmonicThermo(vib_energies=[e for e in vib.get_energies() if not np.iscomplex(e)])
@@ -63,18 +64,19 @@ if __name__ == "__main__":
     entry["harmonic_approx_entropy"] = entropy
 
     # Run potential energy sampling.
+    slab = adslab[[atom.index for atom in adslab if atom.tag != 2]].copy()
     pes = PotentialEnergySampling(
-        slab=adslab[[atom.index for atom in adslab if atom.tag != 2]].copy(),
+        slab=slab,
         ads=adslab[indices_vib].copy(),
         calc=calc,
-        indices_surf=[atom.index for atom in adslab if atom.tag == 1],
+        indices_surf=[atom.index for atom in slab if atom.tag == 1],
         e_min=adslab.get_potential_energy(),
         spacing=args.spacing,
         spacing_surrogate=args.spacing_surrogate,
         reduce_cell=args.reduce_cell,
         n_rotations=args.n_rotations,
         fix_com=args.fix_com,
-        index=None,
+        binding_index=None,
         fmax=args.fmax,
         kwargs_opt=args.kwargs_opt,
         scipy_integral=args.scipy_integral,
@@ -87,15 +89,12 @@ if __name__ == "__main__":
     print(f"PotentialEnergySampling entropy: {entropy*1e3:+7.4f} [meV/K]")
     entry["pes_entropy"] = entropy
 
-    # Save the results.
-    if args.show_plot is True:
-        pes.show_surrogate_pes()
     if args.save_plot is True:
-        pes.save_surrogate_pes(filename=os.join(outdir, "pes.png"))
+        pes.save_surrogate_pes_plotly(filename="pes", filepath = outdir)
 
     # Potential Energy Sampling thermo.
     thermo = PESThermo(
-        vib_energies=vib.get_energies(),
+        vib_energies=[e for e in vib.get_energies() if not np.iscomplex(e)],
         pes=pes,
     )
     entropy = thermo.get_entropy(temperature=args.temperature, verbose=True)
