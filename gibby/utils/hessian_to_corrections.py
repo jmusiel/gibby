@@ -92,7 +92,7 @@ def get_mean_corrections(
     temperature=300,
     hessian_from_vasp=False,
     linear_scaling=None,
-    drop_anomalies=False,
+    drop_anomalies=True,
     ):
 
     correction_df = hessian_to_corrections(
