@@ -16,6 +16,7 @@ def hessian_to_corrections(
     temperature=300,
     hessian_from_vasp=False,
     linear_scaling=None,
+    drop_anomalies=False,
 ):
     """
     input a dataframe containing hessians in a column, given by hessian_column_key
@@ -34,6 +35,8 @@ def hessian_to_corrections(
         total=len(dataframe),
         desc=f"Processing hessians for {hessian_column_key}",
     ):
+        if drop_anomalies and not row["no_anomaly"]:
+            continue
         if row[success_column_key]:
             hessian = row[hessian_column_key]
             if hessian_from_vasp:
