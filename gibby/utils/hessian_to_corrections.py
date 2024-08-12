@@ -82,3 +82,54 @@ def hessian_to_corrections(
             results_dict["hessian"].append(hessian)
 
     return pd.DataFrame(results_dict)
+
+def get_mean_corrections(
+    dataframe,
+    hessian_column_key: str,
+    success_column_key: str = "success",
+    atoms_column_key: str = "atoms",
+    st_conversion=ase.units.invcm, # 1.239842e-4
+    temperature=300,
+    hessian_from_vasp=False,
+    linear_scaling=None,
+    drop_anomalies=False,
+    ):
+
+    correction_df = hessian_to_corrections(
+        dataframe=dataframe,
+        hessian_column_key = hessian_column_key,
+        success_column_key = success_column_key,
+        atoms_column_key = atoms_column_key,
+        st_conversion = st_conversion,
+        temperature = temperature,
+        hessian_from_vasp = hessian_from_vasp,
+        linear_scaling = linear_scaling,
+        drop_anomalies = drop_anomalies,
+    )
+
+    cols = dataframe.columns
+    cols_to_keep = ['mapping_idx', success_column_key, 'frequencies', 'E', atoms_column_key, 'random_id', 'no_anomaly', 'mpid', 'miller', 'shift', 'top', 'adsorbate', 'site', 'formula', 'stoichiometry', 'distribution']
+    cols_remove = [col for col in cols if col not in cols_to_keep]
+    df_meta = dataframe.drop(columns = cols_remove)
+    correction_df = correction_df.merge(df_meta, left_on = "random_id", right_on = "random_id")
+
+    mean_vals = correction_df.groupby("adsorbate").agg({"total": "mean", "zpe": "mean", "deltah": "mean", "ts": "mean"}).reset_index().to_dict(orient="records")
+
+    lookup_mean = {}
+    for entry in mean_vals:
+        lookup_mean[entry["adsorbate"]] = {
+            "total": entry["total"], 
+            "zpe": entry["zpe"], 
+            "deltah": entry["deltah"], 
+            "ts": entry["ts"]
+        }
+
+    df_output = dataframe[dataframe["no_anomaly"]].copy()
+    df_output = df_output[df_output[success_column_key]]
+
+    df_output["total"] = correction_df.apply(lambda row: lookup_mean[row.adsorbate]["total"], axis=1)
+    df_output["zpe"] = correction_df.apply(lambda row: lookup_mean[row.adsorbate]["zpe"], axis=1)
+    df_output["deltah"] = correction_df.apply(lambda row: lookup_mean[row.adsorbate]["deltah"], axis=1)
+    df_output["ts"] = correction_df.apply(lambda row: lookup_mean[row.adsorbate]["ts"], axis=1)
+
+    return df_output
