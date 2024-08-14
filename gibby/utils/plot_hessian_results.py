@@ -65,6 +65,9 @@ def _get_value_metadata(value_name):
     elif value_name == "freq":
         get_values = get_frequencies
         units = "$cm^{-1}$"
+    elif value_name == "all_freq":
+        get_values = get_all_frequencies
+        units = "$cm^{-1}$"
     return get_values, units
 
 
@@ -184,6 +187,11 @@ def apply_hexbin_plot_to_axes(
             ylabel = f"DFT LI/SR frequency ({units})"
             ax.xaxis.set_major_formatter(major_formatter)
             ax.yaxis.set_major_formatter(major_formatter)
+        elif value_name == "all_freq":
+            xlabel = f"all frequencies ({units})"
+            ylabel = f"DFT all frequencies ({units})"
+            ax.xaxis.set_major_formatter(major_formatter)
+            ax.yaxis.set_major_formatter(major_formatter)
 
         ml_values = get_values(pred_df)
         vasp_values = get_values(true_df)
@@ -288,6 +296,12 @@ def get_frequencies(given_df):
         value = real - imag
         values_list.append(value)
     return np.array(values_list)
+
+def get_all_frequencies(given_df):
+    freq_list = [sorted(np.real(freq) - np.imag(freq)) for freq in given_df["freq"].values]
+    result = np.concatenate(freq_list)
+    result = np.real(result) - np.imag(result)
+    return np.array(result)
 
 def get_all_matching_frequencies(ml_df, dft_df):
     values_list = []
@@ -421,6 +435,8 @@ def plot_mae_vs_key(
         ylabel = f"total Gibbs correction MAE ({units})"
     elif value_name == "freq":
         ylabel = f"LI/SR frequency MAE ({units})"
+    elif value_name == "all_freq":
+        ylabel = f"all frequencies MAE ({units})"
 
     vasp_values = get_values(true_dataframe)
     mae_list = []
