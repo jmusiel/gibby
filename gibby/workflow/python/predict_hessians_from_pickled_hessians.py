@@ -193,6 +193,8 @@ def add_hessian_columns(row, calc, calc_name, analytical=False, hessian_delta=0.
     if row["success"]:
         for key in keys:
             atoms = row["atoms"].copy()
+            # set tags if necessary
+            atoms = auto_set_tags(atoms)
             atoms.calc = calc
             if key == "relaxed_hessian":
                 with suppress_stdout():
@@ -214,6 +216,16 @@ def add_hessian_columns(row, calc, calc_name, analytical=False, hessian_delta=0.
             return_list.append(None)
 
     return pd.Series(return_list, index=column_names)
+
+def auto_set_tags(atoms):
+    tags = []
+    for a in atoms:
+        if a.symbol in ['C', 'O', 'N', 'H']:
+            tags.append(2)
+        else:
+            tags.append(1)
+    atoms.set_tags(tags)
+    return atoms
 
 
 class suppress_stdout:
