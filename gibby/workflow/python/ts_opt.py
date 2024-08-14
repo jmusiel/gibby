@@ -60,6 +60,12 @@ def get_parser():
         default=None,
     )
     parser.add_argument(
+        "--traj_output_dir",
+        type=str,
+        default=None,
+        help="output directory for trajectories, joined to output_dir, to turn on traj saving set to 'trajs', default: None",
+    )
+    parser.add_argument(
         "--output_name",
         type=str,
         default="ts_opt_df",
@@ -238,10 +244,18 @@ def main(config):
             if atom.index in ts_atoms.constraints[0].index:
                 cons.fix_translation(atom.index)
 
+        if config["output_dir"] is not None and config["traj_output_dir"] is not None: # save trajs
+            trajs_output_dir = os.path.join(config["output_dir"], config["traj_output_dir"])
+            os.makedirs(trajs_output_dir, exist_ok=True)
+            traj_path = os.path.join(trajs_output_dir, f"{filepath.split('/')[-1]}_{index}.traj")
+        else:
+            traj_path = None
+
+
         dyn = Sella(
             ts_atoms,
             constraints=cons,
-            trajectory=None,
+            trajectory=traj_path,
             hessian_function=None,
             eig=True,  # saddlepoint setting: True, relaxation: False
             order=1,  # saddlepoint setting: 1, relaxation: 0
