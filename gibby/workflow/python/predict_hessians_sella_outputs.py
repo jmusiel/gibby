@@ -37,6 +37,12 @@ def get_parser():
         default="/home/jovyan/working/repos/launch/jlaunch/hessian_smoothness/predict_hessians_ase/hessians_dataframes_predict_output",
     )
     parser.add_argument(
+        "--scale_file",
+        type=str,
+        # default=None,
+        default="/home/jovyan/working/ocp/configs/s2ef/all/gemnet/scaling_factors/gemnet-dT.json",
+    )
+    parser.add_argument(
         "--checkpoint_path",
         type=str,
         nargs="+",
