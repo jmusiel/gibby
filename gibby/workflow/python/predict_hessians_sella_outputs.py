@@ -36,12 +36,7 @@ def get_parser():
         type=str,
         default="/home/jovyan/working/repos/launch/jlaunch/hessian_smoothness/predict_hessians_ase/hessians_dataframes_predict_output",
     )
-    parser.add_argument(
-        "--scale_file",
-        type=str,
-        # default=None,
-        default="/home/jovyan/working/ocp/configs/s2ef/all/gemnet/scaling_factors/gemnet-dT.json",
-    )
+
     parser.add_argument(
         "--checkpoint_path",
         type=str,
@@ -135,6 +130,8 @@ def main(config):
                 checkpoint_model_class_override=config[
                     "checkpoint_model_class_override"
                 ],
+                scale_file_path=None,
+
             )
 
             calc = OCPCalcWrapper(
