@@ -3,3 +3,5 @@ gibby.egg-info/**
 **/wandb/**
 **.pkl
 **/build/**
+*.svg
+*.png

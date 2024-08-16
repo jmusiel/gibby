@@ -2,6 +2,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 import math
 from matplotlib.ticker import FuncFormatter
+from matplotlib.ticker import MaxNLocator
 import ase
 import scipy.optimize
 from tqdm import tqdm
@@ -63,6 +64,9 @@ def _get_value_metadata(value_name):
         units = "$eV$"
     elif value_name == "freq":
         get_values = get_frequencies
+        units = "$cm^{-1}$"
+    elif value_name == "all_freq":
+        get_values = get_all_frequencies
         units = "$cm^{-1}$"
     return get_values, units
 
@@ -147,7 +151,7 @@ def apply_hexbin_plot_to_axes(
     true_df,
     pred_df_name="ML",
     value_name: str = "eigenvalues",
-    size=14,
+    size=20,
     include_mae=True,
     color_max=5,
     ax_min=None,
@@ -162,7 +166,7 @@ def apply_hexbin_plot_to_axes(
     if value_name == "all_matching_freqs":
         units = "$cm^{-1}$"
         xlabel = f"matching ML freq. ({units})"
-        ylabel = f"leftmost DFT freq. ({units})"
+        ylabel = f"LI/SR DFT freq. ({units})"
         ml_values = get_all_matching_frequencies(pred_df, true_df)
         vasp_values = get_frequencies(true_df)
         ax.xaxis.set_major_formatter(major_formatter)
@@ -176,11 +180,16 @@ def apply_hexbin_plot_to_axes(
             xlabel = f"eigenvalues ({units})"
             ylabel = f"DFT eigenvalues ({units})"
         elif value_name == "total":
-            xlabel = f"total correction ({units})"
+            xlabel = f"total Gibbs correction ({units})"
             ylabel = f"DFT total correction ({units})"
         elif value_name == "freq":
-            xlabel = f"largest imaginary frequency ({units})"
-            ylabel = f"DFT corresponding frequency ({units})"
+            xlabel = f"LI/SR frequency ({units})"
+            ylabel = f"DFT LI/SR frequency ({units})"
+            ax.xaxis.set_major_formatter(major_formatter)
+            ax.yaxis.set_major_formatter(major_formatter)
+        elif value_name == "all_freq":
+            xlabel = f"all frequencies ({units})"
+            ylabel = f"DFT all frequencies ({units})"
             ax.xaxis.set_major_formatter(major_formatter)
             ax.yaxis.set_major_formatter(major_formatter)
 
@@ -213,6 +222,7 @@ def apply_hexbin_plot_to_axes(
     ax.set_xlabel(f"{pred_df_name} {xlabel}", fontsize=size)
     ax.set_ylabel(ylabel, fontsize=size)
     ax.set_aspect("equal", "box")
+    ax.tick_params(axis='both', which='major', labelsize=size-5)
     # ax.set_xlim(min_max)
     # ax.set_ylim(min_max)
 
@@ -237,7 +247,8 @@ def apply_hexbin_colorbar(
     hexbin0,
     fig,
     axs,
-    size=14,
+    size=15,
+    pad=0.05,
     cbar_ticks=[1, 2, 3, 4, 5],
 ):
     if not isinstance(axs, np.ndarray):
@@ -247,7 +258,7 @@ def apply_hexbin_colorbar(
     # Create a formatter function that formats numbers as integers
     formatter = FuncFormatter(lambda x, pos: f"{x:.0f}")
     # add shared colorbar
-    cbar = fig.colorbar(hexbin0, ax=axs, format=formatter)
+    cbar = fig.colorbar(hexbin0, ax=axs, format=formatter, pad=pad)
     # set colorbar ticks fontsize
     cbar.ax.tick_params(labelsize=size)
     cbar.set_ticks(cbar_ticks)
@@ -285,6 +296,12 @@ def get_frequencies(given_df):
         value = real - imag
         values_list.append(value)
     return np.array(values_list)
+
+def get_all_frequencies(given_df):
+    freq_list = [sorted(np.real(freq) - np.imag(freq)) for freq in given_df["freq"].values]
+    result = np.concatenate(freq_list)
+    result = np.real(result) - np.imag(result)
+    return np.array(result)
 
 def get_all_matching_frequencies(ml_df, dft_df):
     values_list = []
@@ -407,7 +424,7 @@ def plot_mae_vs_key(
     value_name: str = "eigenvalues",
     title_name=None,
     xlabel: str = None,
-    size=16,
+    size=20,
 ):
 
     get_values, units = _get_value_metadata(value_name)
@@ -415,9 +432,11 @@ def plot_mae_vs_key(
     if value_name == "eigenvalues":
         ylabel = f"eigenvalues MAE ({units})"
     elif value_name == "total":
-        ylabel = f"total correction MAE ({units})"
+        ylabel = f"total Gibbs correction MAE ({units})"
     elif value_name == "freq":
-        ylabel = f"largest imaginary freq. MAE ({units})"
+        ylabel = f"LI/SR frequency MAE ({units})"
+    elif value_name == "all_freq":
+        ylabel = f"all frequencies MAE ({units})"
 
     vasp_values = get_values(true_dataframe)
     mae_list = []
@@ -431,8 +450,12 @@ def plot_mae_vs_key(
     axs.set_xlabel(xlabel, fontsize=size)
     axs.set_ylabel(ylabel, fontsize=size)
 
+    # Set x-axis major locator to integer values
+    axs.xaxis.set_major_locator(MaxNLocator(integer=True))
+    axs.tick_params(axis='both', which='major', labelsize=size-5)
+
     if title_name:
         axs.set_title(title_name, fontsize=size)
 
     fig.patch.set_facecolor("white")
-    return fig
+    return fig, axs
