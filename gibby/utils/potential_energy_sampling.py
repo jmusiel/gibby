@@ -20,6 +20,8 @@ import numpy as np
 from ase.data import atomic_numbers, covalent_radii
 from scipy.optimize import fsolve
 import os
+from itertools import combinations
+
 
 
 # -------------------------------------------------------------------------------------
@@ -32,22 +34,36 @@ class FakeCalculator(Calculator):
     @staticmethod
     def get_forces(self,):
         return np.array([np.nan])
+    
+def get_edges(atoms: ase.Atoms):
+    """
+    Get the edges for all atoms in an atoms object.
 
-def set_all_hookean(atoms, add_cutoffs=0.1, add_bond_thr=1., k=10.):
-    from ase.neighborlist import build_neighbor_list, natural_cutoffs
+    Args:
+        edge_list (list[tuples]): The edges
+    """
+    edge_list = []
+    elements = atoms.get_chemical_symbols()
+    all_combos = list(combinations(range(len(atoms)), 2))
+    for combo in all_combos:
+        total_distance = atoms.get_distance(combo[0], combo[1], mic=True)
+        r1 = covalent_radii[atomic_numbers[elements[combo[0]]]]
+        r2 = covalent_radii[atomic_numbers[elements[combo[1]]]]
+        distance_ratio = total_distance / (r1 + r2)
+        if distance_ratio <= 1.25:
+            edge_list.append(tuple(combo))
+    return edge_list
+
+def get_all_hookean(adsorbate_atoms, slab_len, bond_multiplier=1.25, k=10.):
     from ase.constraints import Hookean
+    constraints = []
+    edge_list = get_edges(adsorbate_atoms)
+    for edge in edge_list:
+        a1, a2 = edge
+        rt =  adsorbate_atoms.get_distance(a1, a2, mic = True)* bond_multiplier
+        constraints.append(Hookean(a1=a1+slab_len, a2=a2+slab_len, k=k, rt=rt))
 
-    cutoffs = np.array(natural_cutoffs(atoms=atoms))
-    nl = build_neighbor_list(
-        atoms=atoms,
-        cutoffs=cutoffs+add_cutoffs,
-        self_interaction=False,
-        bothways=False,
-    )
-    bonds = list(nl.get_connectivity_matrix().keys())
-    for a1, a2 in bonds:
-        rt = cutoffs[a1]+cutoffs[a2]+add_bond_thr
-        atoms.constraints.append(Hookean(a1=a1, a2=a2, k=k, rt=rt))
+    return constraints
 
 def get_1x1_slab_cell(atoms, symprec=1e-7, repetitions=None):
     """Get the 1x1 cell of an ase.Atoms object by checking the translational
@@ -230,6 +246,7 @@ def constrained_relaxations_with_rotations(
     fmax=0.01,
     z_func=None,
     delta=0.05,
+    hookean_constraints = None,
 ):
     """Perform multiple constrained relaxation at different adsorbate rotations.
     The x and y of the centre of mass (fix_com=True) or of the Nth atom of the
@@ -293,6 +310,7 @@ def constrained_relaxations_with_rotations(
             optimizer=optimizer,
             kwargs_opt=kwargs_opt,
             fmax=fmax,
+            hookean_constraints=hookean_constraints,
         )
 
         energies.append(atoms.get_potential_energy())
@@ -322,6 +340,7 @@ def constrained_relaxation(
     optimizer=BFGS,
     kwargs_opt={},
     fmax=0.01,
+    hookean_constraints = None,
 ):
     """Perform a constrained relaxation. The x and y of the centre of mass
     (fix_com=True) or of the Nth atom of the adsorbate (index=N) are fixed.
@@ -356,6 +375,10 @@ def constrained_relaxation(
         atoms.constraints.append(FixCartesian(a=indices[binding_index], mask=[1, 1, 0]))
 
 
+
+    if hookean_constraints is not None:
+        atoms.constraints.extend(hookean_constraints)
+
     atoms.calc = calc
     try:
         opt = optimizer(atoms=atoms, **kwargs_opt)
@@ -365,7 +388,7 @@ def constrained_relaxation(
         print("A relaxation failed.")
         new_calc = FakeCalculator()
         atoms.calc = new_calc
-        
+
     return atoms
 
 
@@ -382,7 +405,6 @@ class PotentialEnergySampling:
         calc=None,
         height=None,
         indices_surf=None,
-        distance=2.0,
         all_hookean=True,
         e_min=None,
         spacing=0.20,
@@ -478,8 +500,10 @@ class PotentialEnergySampling:
         else:
             ads_pos = self.ads[binding_index].position
         self.ads.translate(-ads_pos)
-        if all_hookean is True:
-            set_all_hookean(self.ads)
+        if all_hookean:
+            self.hookean_constraints = get_all_hookean(self.ads, len(self.slab))
+        else:
+            self.hookean_constraints = None
 
         self.cache = get_json_cache(name)
 
@@ -563,6 +587,7 @@ class PotentialEnergySampling:
                     fmax=self.fmax,
                     z_func=self.z_func,
                     delta=self.delta,
+                    hookean_constraints=self.hookean_constraints,
                 )
                 xye_points[ii, 2] = atoms.get_potential_energy()
                 if self.trajectory is not None:
@@ -600,10 +625,9 @@ class PotentialEnergySampling:
         # Read the energies.
         valid_xyz_points = []
         for ii, position in enumerate(self.xyz_points):
-            xye_points[ii, 2] 
             e = atoms_list[ii].get_potential_energy()
             if not np.isnan(e):
-                valid_xyz_points.append([xyz_points[ii,0], xyz_points[ii,1], e])
+                valid_xyz_points.append([position[ii,0], position[ii,1], e])
         valid_xyz_points = np.array(valid_xyz_points)
         self.xye_points = valid_xyz_points
         self.xye_points_ext = extend_xyz_points(
@@ -652,7 +676,6 @@ class PotentialEnergySampling:
 
         if self.es_grid is None:
             self.get_meshgrid_surrogate()
-        print(np.shape(self.xs_grid), np.shape(self.ys_grid), np.shape(self.es_grid))
         
         trace_main = go.Surface(x=self.xs_grid, y=self.ys_grid, z=self.es_grid)
         xs_grid = self.xs_grid

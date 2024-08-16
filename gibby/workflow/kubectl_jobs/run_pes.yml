@@ -26,8 +26,8 @@ spec:
         - /bin/bash
         - -c
         args:
-        - echo ${JOB_COMPLETION_INDEX} && cd gibby && python setup.py develop && pip install e3nn && cd /home/jovyan/shared-scratch/Brook/gibbs_proj/cpes/outputs/${JOB_COMPLETION_INDEX} &&
-          python /home/jovyan/gibby/gibby/workflow/python/run_pes.py --gpu --save_plot --sys_id ${JOB_COMPLETION_INDEX} --input_file /home/jovyan/shared-scratch/Brook/gibbs_proj/cpes/inputs.pkl --outdir /home/jovyan/shared-scratch/Brook/gibbs_proj/cpes/outputs/ --checkpoint_path /home/jovyan/checkpoints/eq2_31M_ec4_allmd.pt
+        - echo ${JOB_COMPLETION_INDEX} && JOB_ID=$((${JOB_COMPLETION_INDEX}+0)) && cd gibby && python setup.py develop && pip install e3nn && cd /home/jovyan/shared-scratch/Brook/gibbs_proj/cpes/outputs/$JOB_ID &&
+          python /home/jovyan/gibby/gibby/workflow/python/run_pes.py --gpu --save_plot --sys_id $JOB_ID --input_file /home/jovyan/shared-scratch/Brook/gibbs_proj/cpes/inputs_20240814.pkl --outdir /home/jovyan/shared-scratch/Brook/gibbs_proj/cpes/outputs/ --checkpoint_path /home/jovyan/checkpoints/eq2_31M_ec4_allmd.pt
         image: 'ulissigroup/kubeflow_vasp:extras-notebook'
         name: 'sample-load'
         resources:
