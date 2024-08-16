@@ -123,8 +123,8 @@ def get_mean_corrections(
             "deltah": entry["deltah"], 
             "ts": entry["ts"]
         }
-
-    df_output = dataframe[dataframe["no_anomaly"]].copy()
+    if drop_anomalies:
+        df_output = dataframe[dataframe["no_anomaly"]].copy()
     df_output = df_output[df_output[success_column_key]]
 
     df_output["total"] = correction_df.apply(lambda row: lookup_mean[row.adsorbate]["total"], axis=1)
@@ -134,6 +134,65 @@ def get_mean_corrections(
 
     return df_output
 
+def leave_one_out_corrections(
+    dataframe,
+    hessian_column_key: str,
+    success_column_key: str = "success",
+    atoms_column_key: str = "atoms",
+    st_conversion=ase.units.invcm, # 1.239842e-4
+    temperature=300,
+    linear_scaling=None,
+    drop_anomalies=True,
+    ):
+    """
+    For each adsorbate, calculate the error in the correction when using one
+    calculation as the correction for all other calculations. Repeat this for
+    all calculations in the group with the same adsorbate. Find the mean absolute
+    and median absolute error for each adsorbate and for the full dataset.
+    """
+
+    correction_df = hessian_to_corrections(
+        dataframe=dataframe,
+        hessian_column_key = hessian_column_key,
+        success_column_key = success_column_key,
+        atoms_column_key = atoms_column_key,
+        st_conversion = st_conversion,
+        temperature = temperature,
+        linear_scaling = linear_scaling,
+        drop_anomalies = drop_anomalies,
+        hessian_from_vasp = True,
+    )
+
+    cols = dataframe.columns
+    cols_to_keep = ['mapping_idx', success_column_key, 'frequencies', 'E', atoms_column_key, 'random_id', 'no_anomaly', 'mpid', 'miller', 'shift', 'top', 'adsorbate', 'site', 'formula', 'stoichiometry', 'distribution']
+    cols_remove = [col for col in cols if col not in cols_to_keep]
+    df_meta = dataframe.drop(columns = cols_remove)
+    correction_df = correction_df.merge(df_meta, left_on = "random_id", right_on = "random_id")
+
+    results = []
+    for adsorbate in correction_df["adsorbate"].unique():
+        df_adsorbate = correction_df[correction_df["adsorbate"] == adsorbate]
+        all_possible_total = df_adsorbate["total"].to_list()
+        all_possible_zpe = df_adsorbate["zpe"].values
+        all_possible_deltah = df_adsorbate["deltah"].values
+        all_possible_ts = df_adsorbate["ts"].values
+        total_errors_all = []
+        zpe_errors_all = []
+        deltah_errors_all = []
+        ts_errors_all = []
+        for i in range(len(all_possible_total)):
+            total_errors_all.extend([all_possible_total[i] - total for iy, total in enumerate(all_possible_total) if not i == iy])
+            zpe_errors_all.extend([all_possible_zpe[i] - zpe for iy, zpe in enumerate(all_possible_zpe) if not i == iy])
+            deltah_errors_all.extend([all_possible_deltah[i] - deltah for iy, deltah in enumerate(all_possible_deltah) if not i == iy])
+            ts_errors_all.extend([all_possible_ts[i] - ts for iy, ts in enumerate(all_possible_ts) if not i == iy])
+
+        results.append({"adsorbate": adsorbate, "nsystems": len(all_possible_total), "mean_total": np.mean(np.abs(total_errors_all)),
+                        "median_total": np.median(np.abs(total_errors_all)), "mean_zpe": np.mean(np.abs(zpe_errors_all)),
+                        "median_zpe": np.median(np.abs(zpe_errors_all)), "mean_deltah": np.mean(np.abs(deltah_errors_all)),
+                        "median_deltah": np.median(np.abs(deltah_errors_all)), "mean_ts": np.mean(np.abs(ts_errors_all)),
+                        "median_ts": np.median(np.abs(ts_errors_all))})
+        
+    return pd.DataFrame(results)
 
 def get_mae_over_mean(
     df:pd.DataFrame,
@@ -239,6 +298,23 @@ if __name__ == "__main__":
     val_mae_over_mean = get_mae_over_mean(df=val_df, vasp_key="hessian", ml_key="eq2_153M_ec4_allmd")
     print(f"brook's ml: {val_mae_over_mean[0]} brook's vasp: {val_mae_over_mean[1]}")
 
+
+    # Leave one out analysis 
+    df_loo = leave_one_out_corrections(val_df, hessian_column_key = "hessian", success_column_key = "success", atoms_column_key = "atoms", drop_anomalies = True)
+
+    def get_weighted_agg(row):
+        return row["nsystems"] / df_loo["nsystems"].sum()
+    
+    df_loo["weight"] = df_loo.apply(get_weighted_agg, axis = 1)
+    mean_total_loo = (df_loo["mean_total"] * df_loo["weight"]).sum()
+    mean_zpe_loo = (df_loo["mean_zpe"] * df_loo["weight"]).sum()
+    mean_deltah_loo = (df_loo["mean_deltah"] * df_loo["weight"]).sum()
+    mean_ts_loo = (df_loo["mean_ts"] * df_loo["weight"]).sum()
+
+    print(f"mean total loo: {mean_total_loo:1.3f} mean zpe loo: {mean_zpe_loo:1.3f} mean deltah loo: {mean_deltah_loo:1.3f} mean ts loo: {mean_ts_loo:1.3f}")
+
+
+    # Cancellation of errors for ML
 
     # make the table of results
     import pandas as pd
