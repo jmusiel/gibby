@@ -6,6 +6,7 @@ from tqdm import tqdm
 from ase.io import read
 import pandas as pd
 from collections import defaultdict
+import pickle
 
 import numpy as np
 from gibby.utils.ase_utils import get_fmax
@@ -43,8 +44,8 @@ def get_parser():
     parser.add_argument(
         "--get_hessians",
         type=str,
-        default="n",
-        help="y/n, default n",
+        default="y",
+        help="y/n, default y",
     )
     parser.add_argument(
         "--hessian_delta",
@@ -61,6 +62,11 @@ def get_parser():
         type=int,
         default=None,
         help="debugging flag, default:None, if set to an integer, how many to debug",
+    )
+    parser.add_argument(
+        "--tags_file",
+        type=str,
+        default="/home/jovyan/shared-scratch/Brook/all_ml_rx_inputs/cattsunami_tag_lookup.pkl",
     )
     return parser
 
@@ -107,7 +113,8 @@ def main(config):
             barrier,
         ) = select_barrier_atoms(neb_traj, calc)
 
-        results_data["name"].append(filepath.split("/")[-1])
+        name = filepath.split("/")[-1].split(".")[0]
+        results_data["name"].append(name)
         results_data["neb_list"].append(neb_list)
         results_data["NEB_barrier_ML_energy"].append(max_neb_energy)
         results_data["NEB_barrier_ML_forces"].append(max_neb_forces)
@@ -117,9 +124,15 @@ def main(config):
         results_data["barrier"].append(barrier)
 
         if config["get_hessians"] == "y":
+            tags = None
+            if config["tags_file"] is not None:
+                with open(config["tags_file"], "rb") as f:
+                    tags_lookup = pickle.load(f)
+                tags = tags_lookup[name.replace("-k_now","")]
+
             hessian_atoms = ts_atoms.copy()
             hessian_atoms.calc = calc
-            hessian = get_hessian(hessian_atoms, hessian_delta=config["hessian_delta"])
+            hessian = get_hessian(hessian_atoms, hessian_delta=config["hessian_delta"], tags=tags)
             results_data["hessian"].append(hessian)
 
     if config["output_dir"] is not None:
