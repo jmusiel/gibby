@@ -304,7 +304,7 @@ def main(config):
         results_data["converged"].append(converged)
         results_data["barrier"].append(barrier)
         results_data["NEB_barrier_ML_energy"].append(max_neb_energy)
-        results_data["NEB_barrier_ML_forces"].append(max_neb_energy)
+        results_data["NEB_barrier_ML_forces"].append(max_neb_forces)
         results_data["NEB_barrier_ML_fmax"].append(max_neb_fmax)
         results_data["TS_opt_ML_max_energy"].append(ts_opt_energy)
         results_data["TS_opt_ML_forces"].append(ts_opt_forces)
