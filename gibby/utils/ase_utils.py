@@ -19,14 +19,18 @@ class suppress_stdout:
         sys.stdout = self._original_stdout
 
 
-def get_hessian(atoms, run_dir=None, hessian_delta=0.01):
+def get_hessian(atoms, run_dir=None, hessian_delta=0.01, tags=None):
     if run_dir is not None:
         cwd = os.getcwd()
         os.chdir(run_dir)
     shutil.rmtree("vib", ignore_errors=True)
+    if tags is None:
+        indices = [i for i in range(len(atoms)) if not i in atoms.constraints[0].index]
+    else:
+        indices = [i for i in range(len(atoms)) if tags[i] == 2]
     vib = Vibrations(
         atoms,
-        indices=[i for i in range(len(atoms)) if not i in atoms.constraints[0].index],
+        indices=indices,
         delta=hessian_delta,
     )
     with suppress_stdout():
