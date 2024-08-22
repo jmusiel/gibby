@@ -15,6 +15,7 @@ from tqdm import tqdm
 import numpy as np
 from datetime import datetime
 from pathlib import Path
+import pickle
 
 from sella import Sella, Constraints
 
@@ -124,6 +125,12 @@ def get_parser():
     parser.add_argument(
         "--sigma_dec", type=float, default=0.65, help="Trust radius decrease factor"
     )
+    parser.add_argument(
+        "--tags_file",
+        type=str,
+        # default="/home/jovyan/shared-scratch/Brook/all_ml_rx_inputs/cattsunami_tag_lookup.pkl",
+        default=None,
+    )
     return parser
 
 
@@ -132,6 +139,10 @@ def main(config):
 
     timestamp_str = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     print(f"timestamp string (wandb group): {timestamp_str}")
+
+    if config["tags_file"] is not None:
+        with open(config["tags_file"], "rb") as f:
+            tags_dict = pickle.load(f)
 
     results_data = {
         "atoms": [],
@@ -241,8 +252,13 @@ def main(config):
 
         cons = Constraints(ts_atoms)
         for atom in ts_atoms:
-            if atom.index in ts_atoms.constraints[0].index:
-                cons.fix_translation(atom.index)
+            if config['tags_file'] is not None:
+                tags = tags_dict[filepath.split('/')[-1].replace(".traj", "").replace("-k_now","")]
+                if tags[atom.index] == 2:
+                    cons.fix_translation(atom.index)
+            else:
+                if atom.index in ts_atoms.constraints[0].index:
+                    cons.fix_translation(atom.index)
 
         if config["output_dir"] is not None and config["traj_output_dir"] is not None: # save trajs
             trajs_output_dir = os.path.join(config["output_dir"], config["traj_output_dir"])

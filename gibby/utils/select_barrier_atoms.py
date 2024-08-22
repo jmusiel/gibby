@@ -90,6 +90,10 @@ def main(config):
     if config["debug"] is not None:
         neb_files_list = neb_files_list[: config["debug"]]
 
+    if config["tags_file"] is not None:
+        with open(config["tags_file"], "rb") as f:
+            tags_lookup = pickle.load(f)
+
     config_override = get_config_override(
         config["checkpoint"], scale_file_path="",
     )
@@ -126,8 +130,6 @@ def main(config):
         if config["get_hessians"] == "y":
             tags = None
             if config["tags_file"] is not None:
-                with open(config["tags_file"], "rb") as f:
-                    tags_lookup = pickle.load(f)
                 tags = tags_lookup[name.replace("-k_now","")]
 
             hessian_atoms = ts_atoms.copy()
