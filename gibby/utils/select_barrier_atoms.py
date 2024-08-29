@@ -115,7 +115,7 @@ def main(config):
             max_neb_fmax,
             index,
             barrier,
-        ) = select_barrier_atoms(neb_traj, calc)
+        ) = select_barrier_atoms(neb_traj, calc=calc)
 
         name = filepath.split("/")[-1].split(".")[0]
         results_data["name"].append(name)
@@ -143,7 +143,7 @@ def main(config):
         df.to_pickle(os.path.join(config["output_dir"], f"{config['output_name']}.pkl"))
 
 
-def select_barrier_atoms(neb_traj, calc):
+def select_barrier_atoms(neb_traj, calc=None):
     """
     Select the atoms with the highest energy in the final relaxed version of the NEB trajectory
     args: 
@@ -166,7 +166,10 @@ def select_barrier_atoms(neb_traj, calc):
     for i, atoms in enumerate(neb_traj):
         neb_list.append(atoms)  # add to neb_list the DFT singlepoint results
         atoms_copy = atoms.copy()
-        atoms_copy.calc = calc
+        if calc is not None:
+            atoms_copy.calc = calc
+        else:
+            atoms_copy.calc = atoms.get_calculator()
         neb_energy = atoms_copy.get_potential_energy()
         neb_forces = atoms_copy.get_forces()
         sp_calc = SinglePointCalculator(
@@ -174,9 +177,9 @@ def select_barrier_atoms(neb_traj, calc):
         )
         sp_calc.implemented_properties = ["energy", "forces"]
         atoms_copy.calc = sp_calc
-        print(
-            f"NEB atoms {i} {atoms_copy.symbols} DFT calc: {neb_energy:.4f}, fmax: {get_fmax(neb_forces):.4f}"
-        )
+        # print(
+        #     f"NEB atoms {i} {atoms_copy.symbols} DFT calc: {neb_energy:.4f}, fmax: {get_fmax(neb_forces):.4f}"
+        # )
         if neb_energy > max_neb_energy or ts_atoms is None:
             if not i == 0 and not i == len(neb_traj) - 1:
                 barrier = True
@@ -185,9 +188,9 @@ def select_barrier_atoms(neb_traj, calc):
             max_neb_fmax = get_fmax(max_neb_forces)
             ts_atoms = atoms_copy
             index = i
-    print(
-        f"ML calc max energy: {max_neb_energy} index {index}, fmax: {max_neb_fmax}, barrier: {barrier}"
-    )
+    # print(
+    #     f"ML calc max energy: {max_neb_energy} index {index}, fmax: {max_neb_fmax}, barrier: {barrier}"
+    # )
 
 
     return (
