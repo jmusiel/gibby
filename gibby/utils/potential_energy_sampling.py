@@ -494,7 +494,6 @@ class PotentialEnergySampling:
         self.scipy_integral = scipy_integral
         self.trajectory = trajectory
         self.trajmode = trajmode
-
         if fix_com is True:
             ads_pos = self.ads.get_center_of_mass()
         else:
@@ -689,6 +688,9 @@ class PotentialEnergySampling:
                 autosize=False,
                 width=700,
                 height=600,
+                scene=dict(zaxis = dict(showgrid = False,showticklabels = False),
+                           xaxis = dict(showgrid = False,showticklabels = False),
+                           yaxis = dict(showgrid = False,showticklabels = False)),
                 )
 
         tracez = go.Surface(z=list(z_offset),
@@ -700,6 +702,7 @@ class PotentialEnergySampling:
                )
         data = [trace_main, tracez] 
         fig = go.Figure(data=data, layout=layout)
+        fig.update_layout(template="plotly_white")
         return fig
 
     def show_surrogate_pes_plotly(self):
@@ -782,7 +785,6 @@ class PotentialEnergySampling:
         mass = sum(self.ads.get_masses()) / units.kg
         part_fun = 2 * np.pi * mass * units.kB * temperature * integral_cpes / (hP**2)
         entropy = units.kB * np.log(part_fun)
-
         return entropy
 
     def get_ads_positions(self):
@@ -1099,3 +1101,31 @@ def get_scaled_normal(
         return (
             0  # if there are no possible surface itersections, place it at the site
         )
+
+def plot_entropies(
+    thermo_dict,
+    temperature_range=[200, 1000],
+    step=10,
+    filename="entropies.png",
+):
+
+    import matplotlib.pyplot as plt
+    entropies_dict = {name: [] for name in thermo_dict}
+    temperature_list = range(temperature_range[0], temperature_range[1]+step, step)
+    for temperature in temperature_list:
+        for name in thermo_dict:
+            entropy = thermo_dict[name].get_entropy(
+                temperature=temperature,
+                verbose=False,
+            )
+            entropies_dict[name].append(entropy*1000) # [meV/K]
+
+    plt.figure()
+    for name in thermo_dict:
+        plt.plot(temperature_list, entropies_dict[name], label=name)
+    plt.legend(loc='upper left')
+    plt.xlim(temperature_range)
+    #plt.ylim([0.2, 1.2])
+    plt.xlabel("temperature [K]")
+    plt.ylabel("entropy [meV/K]")
+    plt.savefig(filename)

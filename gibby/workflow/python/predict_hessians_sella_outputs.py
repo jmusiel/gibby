@@ -175,30 +175,24 @@ def add_hessian_columns(row, calc, calc_name, analytical=False, hessian_delta=0.
         "unrelaxed_hessian",
         # 'relaxed_hessian',
     ]
-    if row["success"]:
-        for key in keys:
-            atoms = row["atoms"].copy()
-            # set tags if necessary
-            assert any([atom.tag == 2 for atom in atoms])
-            atoms.calc = calc
-            if key == "relaxed_hessian":
-                with suppress_stdout():
-                    BFGS(atoms).run(fmax=0.03, steps=1000)
-                column_names.append(f"{calc_name}_relaxed")
-            else:
-                column_names.append(f"{calc_name}")
-            if analytical:  # get analytical hessian
-                hessian = get_analytical_hessian(atoms)
-            else:  # get numerical hessian
-                hessian = get_hessian(atoms, hessian_delta=hessian_delta)
-            return_list.append(hessian)
-    else:
-        for key in keys:
-            if key == "relaxed_hessian":
-                column_names.append(f"{calc_name}_relaxed")
-            else:
-                column_names.append(f"{calc_name}")
-            return_list.append(None)
+
+    for key in keys:
+        atoms = row["atoms"].copy()
+        # set tags if necessary
+        assert any([atom.tag == 2 for atom in atoms])
+        atoms.calc = calc
+        if key == "relaxed_hessian":
+            with suppress_stdout():
+                BFGS(atoms).run(fmax=0.03, steps=1000)
+            column_names.append(f"{calc_name}_relaxed")
+        else:
+            column_names.append(f"{calc_name}")
+        if analytical:  # get analytical hessian
+            hessian = get_analytical_hessian(atoms)
+        else:  # get numerical hessian
+            hessian = get_hessian(atoms, hessian_delta=hessian_delta)
+        return_list.append(hessian)
+
 
     return pd.Series(return_list, index=column_names)
 
