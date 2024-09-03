@@ -3,6 +3,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from gibby.utils.ase_utils import get_fmax
 from sklearn.metrics import mean_absolute_error
+import plotly.express as px
 
 def get_sella_info(name):
     reaction_class = name.split("_")[0]
@@ -132,7 +133,7 @@ if __name__ == "__main__":
     print(df_table.to_latex())
     
 
-
+    # Make fmax density plot
     size = 17
 
     val_fig, val_ax = plt.subplots(1, 1, figsize=(6,6))
@@ -142,16 +143,35 @@ if __name__ == "__main__":
     bins = np.linspace(min(pre_opt_data + post_opt_data), max(pre_opt_data + post_opt_data), 100)
     val_ax.hist(pre_opt_data, bins = bins, alpha=0.5, color='tab:blue', label=f'Pre-optimization', density = True)
     val_ax.hist(post_opt_data, bins = bins, alpha=0.5, color='tab:orange', label=f'Sella optimized', density = True)
-    # val_ax.set_title("Local Mininum Residuals")
 
     val_ax.legend()
     val_ax.set_xlabel("maximum force ($eV/\AA$)", fontsize=size)
-    val_ax.set_ylabel("density", fontsize=size)
-    # val_ax.set_ylim(0, 400)
+
     val_ax.tick_params(axis='both', which='major', labelsize=size-3)
     val_fig.patch.set_facecolor('white')
 
     val_fig.savefig("fmax_residual_distribution_shift_sella.svg")
     val_fig.savefig("fmax_residual_distribution_shift_sella.png", dpi=300, bbox_inches="tight")
     
+    # Make converged / success bar chart
+    dfsum = pd.DataFrame([
+        {"Approach": "CatTSunami baseline", "Success": p_success_baseline*100, "Converged": p_converged_baseline*100},
+        {"Approach": "Sella refined (any converged)", "Success": p_success_sella*100, "Converged": p_converged_sella*100},
+        {"Approach": "Sella refined (both converged)", "Success": p_success_sella2*100, "Converged": p_converged_sella2*100},
+    ])
+    
+    fig = px.bar(dfsum, x="Approach", y="Success", color="Approach", barmode="group", template="plotly_white",
+                 color_discrete_map={"CatTSunami baseline": "#0C023E", "Sella success optimized": "#9FC131", "Sella convergence optimized": "#DBF227"})
+    fig.update_layout( yaxis_title = "% Success", font_family="Arial", autosize=False, width=500, height=500)
+    fig.update_yaxes(range = [0,100])
+
+    fig.write_image("success_bar_plot.svg")
+    
+    fig = px.bar(dfsum, x="Approach", y="Converged", color="Approach", barmode="group", template="plotly_white",
+                 color_discrete_map={"CatTSunami baseline": "#0C023E", "Sella success optimized": "#9FC131", "Sella convergence optimized": "#DBF227"})
+    fig.update_layout( yaxis_title = "% Converged", font_family="Arial", autosize=False, width=500, height=500)
+    fig.update_yaxes(range = [0,100])
+
+    fig.write_image("convergence_bar_plot.svg")
+    fig.show()    
     
