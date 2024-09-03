@@ -106,13 +106,52 @@ if __name__ == "__main__":
     
     print(f"\nCatTSunami baseline:\n% Converged = {p_converged_baseline*100:1.2f}\n% Success = {p_success_baseline*100:1.2f}")
     print(f"MAE energy [eV]: {mae_e_baseline:1.3f} ({std_e_baseline:1.3f})")
-    print(f"Mean fmax [eV/Ang]: {mean_fmax_baseline:1.3f} ({std_fmax_baseline})\n")
+    print(f"Mean fmax [eV/Ang]: {mean_fmax_baseline:1.3f} ({std_fmax_baseline:1.3f})\n")
     
     print(f"Sella convergence biased:\n% Converged = {p_converged_sella*100:1.2f}\n% Success = {p_success_sella*100:1.2f}")
-    print(f"MAE energy [eV]: {mae_e_sella:1.3f} ({std_e_sella})")
-    print(f"Mean fmax [eV/Ang]: {mean_fmax_sella:1.3f} ({std_fmax_sella})\n")
+    print(f"MAE energy [eV]: {mae_e_sella:1.3f} ({std_e_sella:1.3f})")
+    print(f"Mean fmax [eV/Ang]: {mean_fmax_sella:1.3f} ({std_fmax_sella:1.3f})\n")
     
     print(f"Sella success biased:\n% Converged = {p_converged_sella2*100:1.2f}\n% Success = {p_success_sella2*100:1.2f}")
-    print(f"MAE energy [eV]: {mae_e_sella2:1.3f} ({std_e_sella2})")
-    print(f"Mean fmax [eV/Ang]: {mean_fmax_sella2:1.3f} ({std_fmax_sella2})")
+    print(f"MAE energy [eV]: {mae_e_sella2:1.3f} ({std_e_sella2:1.3f})")
+    print(f"Mean fmax [eV/Ang]: {mean_fmax_sella2:1.3f} ({std_fmax_sella2:1.3f})\n\n")
+    
+    
+    cts_base = {"Method": "CatTSunami", "Mean fmax [eV/Ang]": f"{mean_fmax_baseline:1.3f} ({std_fmax_baseline:1.3f})",
+               "Energy MAE [eV]": f"{mae_e_baseline:1.3f} ({std_e_baseline:1.3f})",
+               "Convergence [%]": f"{p_converged_baseline*100:1.2f}", "Success [%]": f"{p_success_baseline*100:1.2f}"}
+    
+    sella_c = {"Method": "Sella refined (any converged)", "Mean fmax [eV/Ang]": f"{mean_fmax_sella:1.3f} ({std_fmax_sella:1.3f})",
+               "Energy MAE [eV]": f"{mae_e_sella:1.3f} ({std_e_sella:1.3f})",
+               "Convergence [%]": f"{p_converged_sella*100:1.2f}", "Success [%]": f"{p_success_sella*100:1.2f}"}
+    
+    sella_s = {"Method": "Sella refined (both converged)", "Mean fmax [eV/Ang]": f"{mean_fmax_sella2:1.3f} ({std_fmax_sella2:1.3f})",
+               "Energy MAE [eV]": f"{mae_e_sella2:1.3f} ({std_e_sella2:1.3f})",
+               "Convergence [%]": f"{p_converged_sella2*100:1.2f}", "Success [%]": f"{p_success_sella2*100:1.2f}"}
+    df_table = pd.DataFrame([cts_base, sella_c, sella_s])
+    print(df_table.to_latex())
+    
+
+
+    size = 17
+
+    val_fig, val_ax = plt.subplots(1, 1, figsize=(6,6))
+
+    pre_opt_data = df_m[(~df_m.residuals_neb.isnull()) & (df_m.all_converged) & (df_m.both_barriered)].ML_neb_fmax.tolist()
+    post_opt_data = df_m[(~df_m.residuals_sella.isnull()) & (df_m.TS_opt_ML_fmax < 0.01) & (df_m.both_barriered)].sella_opt_fmax.tolist()
+    bins = np.linspace(min(pre_opt_data + post_opt_data), max(pre_opt_data + post_opt_data), 100)
+    val_ax.hist(pre_opt_data, bins = bins, alpha=0.5, color='tab:blue', label=f'Pre-optimization', density = True)
+    val_ax.hist(post_opt_data, bins = bins, alpha=0.5, color='tab:orange', label=f'Sella optimized', density = True)
+    # val_ax.set_title("Local Mininum Residuals")
+
+    val_ax.legend()
+    val_ax.set_xlabel("maximum force ($eV/\AA$)", fontsize=size)
+    val_ax.set_ylabel("density", fontsize=size)
+    # val_ax.set_ylim(0, 400)
+    val_ax.tick_params(axis='both', which='major', labelsize=size-3)
+    val_fig.patch.set_facecolor('white')
+
+    val_fig.savefig("fmax_residual_distribution_shift_sella.svg")
+    val_fig.savefig("fmax_residual_distribution_shift_sella.png", dpi=300, bbox_inches="tight")
+    
     
