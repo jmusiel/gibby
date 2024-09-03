@@ -8,6 +8,9 @@ from ocpmodels.trainers.base_trainer import (
 import types
 import torch
 import numpy as np
+from ase import Atoms
+from ase.calculators.calculator import Calculator
+from ocpmodels.datasets import data_list_collater
 
 # this wrapper works for modifying the OCPCalculator in commit c52aeeacb3854c8d7841ab3953a9cfef284a301f
 
@@ -62,6 +65,27 @@ class OCPCalcWrapper(OCPCalculator):
         self.trainer.model.module.hessian = None
         return denormed_hessian
 
+class OCPCalcLatent(OCPCalcWrapper):
+    def calculate(self, atoms: Atoms, properties, system_changes) -> None:
+        Calculator.calculate(self, atoms, properties, system_changes)
+        data_object = self.a2g.convert(atoms)
+        batch = data_list_collater([data_object], otf_graph=True)
+
+        predictions = self.trainer.predict(
+            batch, per_image=False, disable_tqdm=True
+        )
+        if self.trainer.name == "s2ef":
+            self.results["energy"] = predictions["energy"].item()
+            self.results["forces"] = predictions["forces"].cpu().numpy().astype(np.float32)
+            self.results["latent"] = self.trainer.model.module.latent_rep.cpu().numpy().astype(np.float32)
+
+        elif self.trainer.name == "is2re":
+            self.results["energy"] = predictions["energy"].item()
+
+    def get_latent(self, atoms: Atoms):
+        self.reset()
+        atoms.get_potential_energy()
+        return self.results["latent"]
 
 # base_trainer overwrite for load_checkpoint
 def base_trainer_override_load_checkpoint(
