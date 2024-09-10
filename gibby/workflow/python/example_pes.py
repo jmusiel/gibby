@@ -23,7 +23,6 @@ def main():
     spacing = 0.50
     spacing_surrogate = 0.05
     reduce_cell = True
-    distance = 2.
     all_hookean = True
     fix_com = True
     binding_index = 0
@@ -73,7 +72,6 @@ def main():
     slab_opt = slab.copy()
     ads_opt = ads.copy()
     position = np.average([slab_opt.positions[ii] for ii in indices_site], axis=0)
-    ads_opt.translate(position+[0., 0., distance])
     slab_opt += ads_opt
     
     # Optimize structure.
@@ -103,7 +101,6 @@ def main():
         ads=ads,
         calc=calc,
         indices_surf=indices_surf,
-        distance=distance,
         all_hookean=all_hookean,
         e_min=e_min,
         spacing=spacing,
@@ -127,7 +124,7 @@ def main():
     print(f"PotentialEnergySampling entropy: {entropy*1e3:+7.4f} [meV/K]")
     
     if show_plot is True:
-        pes.show_surrogate_pes_plotly()
+        pes.save_surrogate_pes_plotly("pes.html", ".")
     
     # if save_plot is True:
     #     pes.save_surrogate_pes(filename="pes.png")

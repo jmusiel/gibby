@@ -6,6 +6,10 @@ from collections import defaultdict
 from tqdm import tqdm
 import pandas as pd
 
+def sort_wrap(freqs):
+    freqs_real = [np.real(freq) for freq in freqs]
+    order = np.argsort([freq**2 for freq in freqs_real])
+    return [freqs_real[idx] for idx in order]
 
 def hessian_to_corrections(
     dataframe,
@@ -251,10 +255,30 @@ def get_mae_over_mean(
     # Get the mean value per adsorbate
     df_both_no_anom = df_both[df_both[no_anomaly_column_str]].copy()
 
-    mean_vals_vasp = df_both_no_anom.groupby("adsorbate").agg({"total_vasp": "mean", "zpe_vasp": "mean", "deltah_vasp": "mean", "ts_vasp": "mean"}).reset_index().to_dict(orient="records")
+#     mean_vals_vasp = df_both_no_anom.groupby("adsorbate").agg({"total_vasp": "mean", "zpe_vasp": "mean", "deltah_vasp": "mean", "ts_vasp": "mean"}).reset_index().to_dict(orient="records")
+#     lookup_mean_vasp = {}
+#     for entry in mean_vals_vasp:
+#         lookup_mean_vasp[entry["adsorbate"]] = (entry["total_vasp"], entry["zpe_vasp"], entry["deltah_vasp"], entry["ts_vasp"])
+
+    entries = []
     lookup_mean_vasp = {}
-    for entry in mean_vals_vasp:
-        lookup_mean_vasp[entry["adsorbate"]] = (entry["total_vasp"], entry["zpe_vasp"], entry["deltah_vasp"], entry["ts_vasp"])
+    st_conversion = ase.units.invcm
+    temperature = 300
+    for adsorbate in df_both_no_anom.adsorbate.unique():
+        freqs = df_both_no_anom[df_both_no_anom.adsorbate == adsorbate].freq_vasp.values
+        sorted_freqs = [np.array(sort_wrap(freq)) for freq in freqs]
+        freq_stacked = np.vstack(sorted_freqs)
+        avg_freq = list(np.mean(freq_stacked, axis = 0))
+        entries.append({"adsorbate": adsorbate, "mean frequencies": avg_freq})
+        thermo = HarmonicThermo(
+            [f * st_conversion for f in avg_freq if not f == 0]
+        )
+        ts = (
+            thermo.get_entropy(temperature=temperature, verbose=False) * temperature
+        )
+        zpe = thermo.get_ZPE_correction()
+        deltah = thermo._vibrational_energy_contribution(temperature=temperature)
+        lookup_mean_vasp[adsorbate] = {"mean total": zpe + deltah - ts, "mean zpe": zpe, "mean deltah": deltah, "mean ts": ts}
 
     mean_vals_ml = df_both_no_anom.groupby("adsorbate").agg({"total_ml": "mean", "zpe_ml": "mean", "deltah_ml": "mean", "ts_ml": "mean"}).reset_index().to_dict(orient="records")
     lookup_mean_ml = {}
@@ -262,11 +286,16 @@ def get_mae_over_mean(
         lookup_mean_ml[entry["adsorbate"]] = (entry["total_ml"], entry["zpe_ml"], entry["deltah_ml"], entry["ts_ml"])
 
     # Get the mean absolute error when assuming the mean value per adsorbate
-    df_both_no_anom["vasp_abs_error_over_mean"] = df_both_no_anom.apply(lambda row: abs(lookup_mean_vasp[row.adsorbate][0] - row.total_vasp), axis=1)
-    df_both_no_anom["ml_abs_error_over_mean"] = df_both_no_anom.apply(lambda row: abs(lookup_mean_ml[row.adsorbate][0] - row.total_ml), axis=1)
+    df_both_no_anom["vasp_abs_error_over_mean_total"] = df_both_no_anom.apply(lambda row: abs(lookup_mean_vasp[row.adsorbate]["mean total"] - row.total_vasp), axis=1)
+    df_both_no_anom["vasp_abs_error_over_mean_zpe"] = df_both_no_anom.apply(lambda row: abs(lookup_mean_vasp[row.adsorbate]["mean zpe"] - row.zpe_vasp), axis=1)
+    df_both_no_anom["vasp_abs_error_over_mean_deltah"] = df_both_no_anom.apply(lambda row: abs(lookup_mean_vasp[row.adsorbate]["mean deltah"] - row.deltah_vasp), axis=1)
+    df_both_no_anom["vasp_abs_error_over_mean_ts"] = df_both_no_anom.apply(lambda row: abs(lookup_mean_vasp[row.adsorbate]["mean ts"] - row.ts_vasp), axis=1)
+    
+    
+#     df_both_no_anom["ml_abs_error_over_mean"] = df_both_no_anom.apply(lambda row: abs(lookup_mean_ml[row.adsorbate][0] - row.total_ml), axis=1)
     # Note you can add each component if you want.
 
-    return df_both_no_anom["ml_abs_error_over_mean"].mean(), df_both_no_anom["vasp_abs_error_over_mean"].mean(), df_both_no_anom
+    return df_both_no_anom["vasp_abs_error_over_mean_total"].mean(), df_both_no_anom["vasp_abs_error_over_mean_zpe"].mean(), df_both_no_anom["vasp_abs_error_over_mean_deltah"].mean(), df_both_no_anom["vasp_abs_error_over_mean_ts"].mean(), df_both_no_anom, lookup_mean_vasp
 
 # REMOVE ME later:
 # for testing

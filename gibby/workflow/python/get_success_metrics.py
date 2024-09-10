@@ -146,6 +146,8 @@ if __name__ == "__main__":
 
     val_ax.legend()
     val_ax.set_xlabel("maximum force ($eV/\AA$)", fontsize=size)
+    val_ax.set_ylabel("density", fontsize=size)
+    
 
     val_ax.tick_params(axis='both', which='major', labelsize=size-3)
     val_fig.patch.set_facecolor('white')
@@ -155,22 +157,22 @@ if __name__ == "__main__":
     
     # Make converged / success bar chart
     dfsum = pd.DataFrame([
-        {"Approach": "CatTSunami baseline", "Success": p_success_baseline*100, "Converged": p_converged_baseline*100},
-        {"Approach": "Sella refined (any converged)", "Success": p_success_sella*100, "Converged": p_converged_sella*100},
-        {"Approach": "Sella refined (both converged)", "Success": p_success_sella2*100, "Converged": p_converged_sella2*100},
+        {"Approach": "CatTSunami baseline", "Failure": 100-p_success_baseline*100, "Unconverged": 100-p_converged_baseline*100},
+        {"Approach": "Sella refined (any converged)", "Failure": 100-p_success_sella*100, "Unconverged": 100-p_converged_sella*100},
+        {"Approach": "Sella refined (both converged)", "Failure": 100-p_success_sella2*100, "Unconverged": 100-p_converged_sella2*100},
     ])
     
-    fig = px.bar(dfsum, x="Approach", y="Success", color="Approach", barmode="group", template="plotly_white",
+    fig = px.bar(dfsum, x="Approach", y="Failure", color="Approach", barmode="group", template="plotly_white",
                  color_discrete_map={"CatTSunami baseline": "#0C023E", "Sella success optimized": "#9FC131", "Sella convergence optimized": "#DBF227"})
-    fig.update_layout( yaxis_title = "% Success", font_family="Arial", autosize=False, width=500, height=500)
-    fig.update_yaxes(range = [0,100])
+    fig.update_layout( yaxis_title = "% Failure", font_family="Arial", autosize=False, width=500, height=500)
+    fig.update_yaxes(range = [0,30])
 
     fig.write_image("success_bar_plot.svg")
     
-    fig = px.bar(dfsum, x="Approach", y="Converged", color="Approach", barmode="group", template="plotly_white",
+    fig = px.bar(dfsum, x="Approach", y="Unconverged", color="Approach", barmode="group", template="plotly_white",
                  color_discrete_map={"CatTSunami baseline": "#0C023E", "Sella success optimized": "#9FC131", "Sella convergence optimized": "#DBF227"})
-    fig.update_layout( yaxis_title = "% Converged", font_family="Arial", autosize=False, width=500, height=500)
-    fig.update_yaxes(range = [0,100])
+    fig.update_layout( yaxis_title = "% Unconverged", font_family="Arial", autosize=False, width=500, height=500)
+    fig.update_yaxes(range = [0,30])
 
     fig.write_image("convergence_bar_plot.svg")
     fig.show()    
