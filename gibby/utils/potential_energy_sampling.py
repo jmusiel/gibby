@@ -1,7 +1,3 @@
-# -------------------------------------------------------------------------------------
-# IMPORTS
-# -------------------------------------------------------------------------------------
-
 import numpy as np
 from ase import units
 from ase.io import Trajectory
@@ -23,10 +19,6 @@ import os
 from itertools import combinations
 
 
-
-# -------------------------------------------------------------------------------------
-# GET 1X1 SLAB CELL
-# -------------------------------------------------------------------------------------
 class FakeCalculator(Calculator):
     @staticmethod
     def get_potential_energy(self,):
@@ -60,7 +52,7 @@ def get_all_hookean(adsorbate_atoms, slab_len, bond_multiplier=1.25, k=10.):
     edge_list = get_edges(adsorbate_atoms)
     for edge in edge_list:
         a1, a2 = edge
-        rt =  adsorbate_atoms.get_distance(a1, a2, mic = True)* bond_multiplier
+        rt = adsorbate_atoms.get_distance(a1, a2, mic = True) * bond_multiplier
         constraints.append(Hookean(a1=a1+slab_len, a2=a2+slab_len, k=k, rt=rt))
 
     return constraints
@@ -108,11 +100,6 @@ def get_1x1_slab_cell(atoms, symprec=1e-7, repetitions=None):
     return Cell(np.dot(atoms.cell, np.identity(3) * [xx_fract, yy_fract, 1]))
 
 
-# -------------------------------------------------------------------------------------
-# GET MESHGRID
-# -------------------------------------------------------------------------------------
-
-
 def get_meshgrid(cell, height, z_func=None, spacing=0.5):
     """Get a meshgrid of [x, y, z] points from an atoms.cell object and a grid spacing.
     If z_func is None, z is equal to height.
@@ -149,11 +136,6 @@ def get_meshgrid(cell, height, z_func=None, spacing=0.5):
     return xx_grid, yy_grid, zz_grid
 
 
-# -------------------------------------------------------------------------------------
-# GET XYZ POINTS
-# -------------------------------------------------------------------------------------
-
-
 def get_xyz_points(cell, height, z_func=None, spacing=0.5):
     """Get an array of [x, y, z] points from an atoms.cell object and a grid spacing.
     If z_func is None, z is equal to height.
@@ -184,11 +166,6 @@ def get_xyz_points(cell, height, z_func=None, spacing=0.5):
             xyz_points[ii * len(yr_vect) + jj] = xx, yy, zz
 
     return xyz_points
-
-
-# -------------------------------------------------------------------------------------
-# EXTEND XYZ POINTS
-# -------------------------------------------------------------------------------------
 
 
 def extend_xyz_points(xyz_points, cell, border=3.0):
@@ -228,11 +205,6 @@ def extend_xyz_points(xyz_points, cell, border=3.0):
     return xyz_points_ext
 
 
-# -------------------------------------------------------------------------------------
-# CONSTRAINED RELAXATIONS WITH ROTATIONS
-# -------------------------------------------------------------------------------------
-
-
 def constrained_relaxations_with_rotations(
     slab,
     ads,
@@ -246,7 +218,7 @@ def constrained_relaxations_with_rotations(
     fmax=0.01,
     z_func=None,
     delta=0.05,
-    hookean_constraints = None,
+    hookean_constraints=None,
 ):
     """Perform multiple constrained relaxation at different adsorbate rotations.
     The x and y of the centre of mass (fix_com=True) or of the Nth atom of the
@@ -303,7 +275,7 @@ def constrained_relaxations_with_rotations(
         atoms = constrained_relaxation(
             slab=slab_new,
             ads=ads_new,
-            site = position,
+            site=position,
             calc=calc,
             binding_index=binding_index,
             fix_com=fix_com,
@@ -316,18 +288,16 @@ def constrained_relaxations_with_rotations(
         energies.append(atoms.get_potential_energy())
         atoms_list.append(atoms)
 
-    energies_no_nan = [energy for energy in energies if not np.isnan(energy)]
-    atoms_list_no_nan = [atoms for idx, atoms in enumerate(atoms_list) if not np.isnan(energies[idx])]
-    if len(energies_no_nan) == 0:
-        return atoms_list[0]
-    
-    index = np.argmin(energies_no_nan)
-    return atoms_list_no_nan[index]
-
-
-# -------------------------------------------------------------------------------------
-# CONSTRAINED RELAXATION
-# -------------------------------------------------------------------------------------
+    # TODO: This should work, right?.
+    index = np.argmin([ee if not np.isnan(ee) else np.inf for ee in energies])
+    return atoms_list[index]
+    #energies_no_nan = [energy for energy in energies if not np.isnan(energy)]
+    #atoms_list_no_nan = [atoms for idx, atoms in enumerate(atoms_list) if not np.isnan(energies[idx])]
+    #if len(energies_no_nan) == 0:
+    #    return atoms_list[0]
+    #
+    #index = np.argmin(energies_no_nan)
+    #return atoms_list_no_nan[index]
 
 
 def constrained_relaxation(
@@ -340,7 +310,9 @@ def constrained_relaxation(
     optimizer=BFGS,
     kwargs_opt={},
     fmax=0.01,
-    hookean_constraints = None,
+    n_max_restarts=20,
+    scale_rng=0.01,
+    hookean_constraints=None,
 ):
     """Perform a constrained relaxation. The x and y of the centre of mass
     (fix_com=True) or of the Nth atom of the adsorbate (index=N) are fixed.
@@ -365,7 +337,7 @@ def constrained_relaxation(
         mode = "com"
     else:
         mode = "binding_atom"
-    atoms = place_adsorbate_on_site(slab, ads, site, mode, binding_index = binding_index)
+    atoms = place_adsorbate_on_site(slab, ads, site, mode, binding_index=binding_index)
     indices = [aa.index for aa in atoms if aa.index >= len(slab)]
     atoms.constraints = [FixAtoms(indices=range(len(slab)))]
 
@@ -374,27 +346,48 @@ def constrained_relaxation(
     else:
         atoms.constraints.append(FixCartesian(a=indices[binding_index], mask=[1, 1, 0]))
 
-
-
     if hookean_constraints is not None:
         atoms.constraints.extend(hookean_constraints)
 
-    atoms.calc = calc
-    try:
-        opt = optimizer(atoms=atoms, **kwargs_opt)
-        opt.run(fmax=fmax)
+    #atoms.calc = calc
+    #try:
+    #    opt = optimizer(atoms=atoms, **kwargs_opt)
+    #    opt.run(fmax=fmax)
+    #
+    #except:
+    #    print("A relaxation failed.")
+    #    new_calc = FakeCalculator()
+    #    atoms.calc = new_calc
 
-    except:
-        print("A relaxation failed.")
+    # Try the constrained relaxation multiple times.
+    atoms.calc = calc
+    atoms_copy = atoms.copy()
+    for ii in range(n_max_restarts):
+        converged = False
+        try:
+            opt = optimizer(atoms=atoms, **kwargs_opt)
+            opt.run(fmax=fmax)
+            converged = opt.converged()
+        except:
+            print('Calculation failed, restarting.')
+            rng = np.random.RandomState()
+            atoms = atoms_copy.copy()
+            atoms.calc = calc
+            atoms.positions[indices] += rng.normal(
+                scale=scale_rng,
+                size=[len(indices), 3],
+            )
+        if converged:
+            break
+
+    if converged is False:
+        # TODO: Can we just use the SinglePointCalculator here? See below.
         new_calc = FakeCalculator()
         atoms.calc = new_calc
+        #from ase.calculators.singlepoint import SinglePointCalculator
+        #atoms.calc = SinglePointCalculator(atoms=atoms, energy=np.nan)
 
     return atoms
-
-
-# -------------------------------------------------------------------------------------
-# POTENTIAL ENERGY SAMPLING
-# -------------------------------------------------------------------------------------
 
 
 class PotentialEnergySampling:
@@ -600,7 +593,9 @@ class PotentialEnergySampling:
                 if world.rank == 0:
                     handle.save(xye_points[ii])
 
-        valid_xyz_points = np.array([xye_point for xye_point in xye_points if not np.isnan(xye_point[2])])
+        valid_xyz_points = np.array([
+            xye_point for xye_point in xye_points if not np.isnan(xye_point[2])
+        ])
         self.xye_points = valid_xyz_points
         self.xye_points_ext = extend_xyz_points(
             xyz_points=valid_xyz_points,
@@ -685,13 +680,15 @@ class PotentialEnergySampling:
         z_offset=(np.min(es_grid)-2)*np.ones(es_grid.shape)
 
         layout = go.Layout(
-                autosize=False,
-                width=700,
-                height=600,
-                scene=dict(zaxis = dict(showgrid = False,showticklabels = False),
-                           xaxis = dict(showgrid = False,showticklabels = False),
-                           yaxis = dict(showgrid = False,showticklabels = False)),
-                )
+            autosize=False,
+            width=700,
+            height=600,
+            scene=dict(
+                zaxis=dict(showgrid=False, showticklabels=False),
+                xaxis=dict(showgrid=False, showticklabels=False),
+                yaxis=dict(showgrid=False, showticklabels=False)
+            ),
+        )
 
         tracez = go.Surface(z=list(z_offset),
                 x=list(xs_grid),
@@ -713,8 +710,6 @@ class PotentialEnergySampling:
         fig = self.make_surrogate_pes_plotly()
         fig.write_html(os.path.join(filepath, filename + '.html'))
         fig.write_image(os.path.join(filepath, filename + '.png'))
-
-
 
     def save_surrogate_pes(self, filename="pes.png"):
         """Save 2D plot of PES to file."""
@@ -770,12 +765,8 @@ class PotentialEnergySampling:
 
         return integral_cpes
 
-    def get_entropy_pes(self, temperature):
-        """Calculate the entropy from the PES."""
-        if self.es_grid is None:
-            self.get_meshgrid_surrogate()
-            if self.e_min is None or self.e_min > np.min(self.es_grid):
-                self.e_min = np.min(self.es_grid)
+    def get_partition_fun(self, temperature):
+        """Get partition function from the PES."""
         if self.scipy_integral is True:
             integral_cpes = self.get_integral_pes_scipy(temperature)
         else:
@@ -784,7 +775,24 @@ class PotentialEnergySampling:
         hP = units._hplanck * units.kJ * 1e-3
         mass = sum(self.ads.get_masses()) / units.kg
         part_fun = 2 * np.pi * mass * units.kB * temperature * integral_cpes / (hP**2)
-        entropy = units.kB * np.log(part_fun)
+
+        return part_fun
+
+    def get_entropy_pes(self, temperature):
+        """Calculate the entropy from the PES."""
+        if self.es_grid is None:
+            self.get_meshgrid_surrogate()
+            # Do this to avoid low values in the pes resulting from the fit.
+            if self.e_min is None or self.e_min > np.min(self.xye_points_ext[:,2]):
+                self.e_min = np.min(self.xye_points_ext[:,2])
+                self.es_grid[np.where(self.es_grid < self.e_min)] = self.e_min
+            #if self.e_min is None or self.e_min > np.min(self.es_grid):
+            #    self.e_min = np.min(self.es_grid)
+        
+        part_fun = self.get_partition_fun(temperature)
+        dpart_fun_dT = self.get_partition_fun(temperature+1)-part_fun
+        entropy = units.kB * (np.log(part_fun) + temperature / part_fun * dpart_fun_dT)
+
         return entropy
 
     def get_ads_positions(self):
@@ -797,11 +805,6 @@ class PotentialEnergySampling:
             ads_new.translate(position)
             slab_new += ads_new
         return slab_new
-
-
-# -------------------------------------------------------------------------------------
-# PES THERMO
-# -------------------------------------------------------------------------------------
 
 
 class PESThermo(HarmonicThermo):
@@ -857,11 +860,6 @@ class PESThermo(HarmonicThermo):
         return S
 
 
-# -------------------------------------------------------------------------------------
-# FIXSUBSETCOM
-# -------------------------------------------------------------------------------------
-
-
 class FixSubsetCom(FixConstraint):
     """Constraint class for fixing the center of mass of a subset of atoms."""
 
@@ -896,7 +894,10 @@ class FixSubsetCom(FixConstraint):
     def todict(self):
         return {
             "name": self.__class__.__name__,
-            "kwargs": {"indices": self.binding_index.tolist(), "mask": self.mask.tolist()},
+            "kwargs": {
+                "indices": self.binding_index.tolist(),
+                "mask": self.mask.tolist(),
+            },
         }
 
 
@@ -995,7 +996,10 @@ def find_combos_to_check(
             )
     return combos_to_check
 
-def get_projected_points(adsorbate_c2: ase.Atoms, slab_c2: ase.Atoms, unit_normal: np.ndarray
+def get_projected_points(
+    adsorbate_c2: ase.Atoms,
+    slab_c2: ase.Atoms,
+    unit_normal: np.ndarray,
 ):
     """
     Find the x and y coordinates of each atom projected onto the surface plane.
