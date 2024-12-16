@@ -183,7 +183,7 @@ def main(config):
         df.to_pickle(os.path.join(output_dir, new_pickle_name + ".pkl"))
 
 
-def add_hessian_columns(row, calc, calc_name, analytical=False, hessian_delta=0.01):
+def add_hessian_columns(row, calc, calc_name, analytical=False, hessian_delta=0.01, tags=None):
     return_list = []
     column_names = []
     keys = [
@@ -194,7 +194,10 @@ def add_hessian_columns(row, calc, calc_name, analytical=False, hessian_delta=0.
         for key in keys:
             atoms = row["atoms"].copy()
             # set tags if necessary
-            atoms = auto_set_tags(atoms)
+            if tags is not None:
+                atoms.set_tags(tags)
+            else:
+                atoms = auto_set_tags(atoms)
             atoms.calc = calc
             if key == "relaxed_hessian":
                 with suppress_stdout():
@@ -205,7 +208,7 @@ def add_hessian_columns(row, calc, calc_name, analytical=False, hessian_delta=0.
             if analytical:  # get analytical hessian
                 hessian = get_analytical_hessian(atoms)
             else:  # get numerical hessian
-                hessian = get_hessian(atoms, hessian_delta=hessian_delta)
+                hessian = get_hessian(atoms, hessian_delta=hessian_delta, tags=tags)
             return_list.append(hessian)
     else:
         for key in keys:
