@@ -25,7 +25,7 @@ def get_cattsunami_results(df_m):
     fmax_conv = df_m[(df_m.all_converged)].ML_neb_fmax.tolist()
     
     e_all = np.abs(df_m[(df_m.all_converged)].residuals_neb.dropna().values)
-    return n_converged/n_calculated, n_success/n_converged, np.mean(fmax_conv), np.std(fmax_conv), np.mean(e_all), np.std(e_all)
+    return n_converged/n_calculated, n_success/n_converged, n_success/n_calculated, np.mean(fmax_conv), np.std(fmax_conv), np.mean(e_all), np.std(e_all)
 
 def get_sella_fallback_results(df2):
     # Converged
@@ -52,7 +52,7 @@ def get_sella_fallback_results(df2):
     e_all = np.abs(np.array(e_sella_conv + e_fallback_conv))
     
     
-    return n_converged/n_calculated, n_success/n_converged, np.mean(fmax_all), np.std(fmax_all), np.mean(e_all), np.std(e_all)
+    return n_converged/n_calculated, n_success/n_converged, n_success/n_calculated, np.mean(fmax_all), np.std(fmax_all), np.mean(e_all), np.std(e_all)
 
 def get_sella_success_biased(df):
     n_converged= df[((df.TS_opt_ML_fmax  <= 0.01) & (df.converged_x) & (~df.failed_sp)) | df.barrierless_converged].shape[0]
@@ -67,7 +67,7 @@ def get_sella_success_biased(df):
     # E
     e_all = np.abs(df[(df.TS_opt_ML_fmax <= 0.01) & (df.converged_x)].residuals_sella.dropna().values)
     
-    return n_converged/n_calculated, n_success/n_converged, np.mean(fmax_all), np.std(fmax_all), np.mean(e_all), np.std(e_all)
+    return n_converged/n_calculated, n_success/n_converged, n_success/n_calculated, np.mean(fmax_all), np.std(fmax_all), np.mean(e_all), np.std(e_all)
 
 if __name__ == "__main__":
     
@@ -93,44 +93,153 @@ if __name__ == "__main__":
     # Apply minor data calculations
     df_m["residuals_neb"] = df_m.E_TS_SP - df_m.E_raw_TS
     df_m["residuals_sella"] = df_m.SP_energy_DFT - df_m.E_raw_TS
+    df_desorp_m["residuals_neb"] = df_desorp_m.E_TS_SP - df_desorp_m.E_raw_TS
+    df_desorp_m["residuals_sella"] = df_desorp_m.SP_energy_DFT - df_desorp_m.E_raw_TS
+    df_disoc_m["residuals_neb"] = df_disoc_m.E_TS_SP - df_disoc_m.E_raw_TS
+    df_disoc_m["residuals_sella"] = df_disoc_m.SP_energy_DFT - df_disoc_m.E_raw_TS
+    df_disoc_m = df_disoc_m[df_disoc_m.residual < 200].copy() # There is one dft neb with E_TS(raw) = 0 -- this must be an error so we will ignore
+    df_transfer_m["residuals_neb"] = df_transfer_m.E_TS_SP - df_transfer_m.E_raw_TS
+    df_transfer_m["residuals_sella"] = df_transfer_m.SP_energy_DFT - df_transfer_m.E_raw_TS
     
     df_m["ML_neb_fmax"] = df_m.F_TS_SP.apply(get_fmax_wrapper)
     df_m["sella_opt_fmax"] = df_m.DFT_forces.apply(get_fmax_wrapper)
-    
+    df_desorp_m["ML_neb_fmax"] = df_desorp_m.F_TS_SP.apply(get_fmax_wrapper)
+    df_desorp_m["sella_opt_fmax"] = df_desorp_m.DFT_forces.apply(get_fmax_wrapper)
+    df_disoc_m["ML_neb_fmax"] = df_disoc_m.F_TS_SP.apply(get_fmax_wrapper)
+    df_disoc_m["sella_opt_fmax"] = df_disoc_m.DFT_forces.apply(get_fmax_wrapper)
+    df_transfer_m["ML_neb_fmax"] = df_transfer_m.F_TS_SP.apply(get_fmax_wrapper)
+    df_transfer_m["sella_opt_fmax"] = df_transfer_m.DFT_forces.apply(get_fmax_wrapper)
+
     # Find convergence and success for CatTSunami baseline and sella
-    p_converged_baseline, p_success_baseline, mean_fmax_baseline, std_fmax_baseline, mae_e_baseline, std_e_baseline = get_cattsunami_results(df_m)
+    p_converged_baseline, p_success_baseline, p_success_overall_baseline, mean_fmax_baseline, std_fmax_baseline, mae_e_baseline, std_e_baseline = get_cattsunami_results(df_m)
+    p_converged_baseline_desorp, p_success_baseline_desorp, p_success_overall_baseline_desorp, mean_fmax_baseline_desorp, std_fmax_baseline_desorp, mae_e_baseline_desorp, std_e_baseline_desorp = get_cattsunami_results(df_desorp_m)
+    p_converged_baseline_disoc, p_success_baseline_disoc, p_success_overall_baseline_disoc, mean_fmax_baseline_disoc, std_fmax_baseline_disoc, mae_e_baseline_disoc, std_e_baseline_disoc = get_cattsunami_results(df_disoc_m)
+    p_converged_baseline_transfer, p_success_baseline_transfer, p_success_overall_baseline_transfer, mean_fmax_baseline_transfer, std_fmax_baseline_transfer, mae_e_baseline_transfer, std_e_baseline_transfer = get_cattsunami_results(df_transfer_m)
     
-    p_converged_sella, p_success_sella, mean_fmax_sella, std_fmax_sella, mae_e_sella, std_e_sella = get_sella_fallback_results(df_m)
+    p_converged_sella, p_success_sella, p_success_sella_overall, mean_fmax_sella, std_fmax_sella, mae_e_sella, std_e_sella = get_sella_fallback_results(df_m)
+    p_converged_sella_desorp, p_success_sella_desorp, p_success_sella_overall_desorp, mean_fmax_sella_desorp, std_fmax_sella_desorp, mae_e_sella_desorp, std_e_sella_desorp = get_sella_fallback_results(df_desorp_m)
+    p_converged_sella_disoc, p_success_sella_disoc, p_success_sella_overall_disoc, mean_fmax_sella_disoc, std_fmax_sella_disoc, mae_e_sella_disoc, std_e_sella_disoc = get_sella_fallback_results(df_disoc_m)
+    p_converged_sella_transfer, p_success_sella_transfer, p_success_sella_overall_transfer, mean_fmax_sella_transfer, std_fmax_sella_transfer, mae_e_sella_transfer, std_e_sella_transfer = get_sella_fallback_results(df_transfer_m)
     
-    p_converged_sella2, p_success_sella2, mean_fmax_sella2, std_fmax_sella2, mae_e_sella2, std_e_sella2 = get_sella_success_biased(df_m)
+    p_converged_sella2, p_success_sella2, p_success_sella2_overall, mean_fmax_sella2, std_fmax_sella2, mae_e_sella2, std_e_sella2 = get_sella_success_biased(df_m)
+    p_converged_sella2_desorp, p_success_sella2_desorp, p_success_sella2_overall_desorp, mean_fmax_sella2_desorp, std_fmax_sella2_desorp, mae_e_sella2_desorp, std_e_sella2_desorp = get_sella_success_biased(df_desorp_m)
+    p_converged_sella2_disoc, p_success_sella2_disoc, p_success_sella2_overall_disoc, mean_fmax_sella2_disoc, std_fmax_sella2_disoc, mae_e_sella2_disoc, std_e_sella2_disoc = get_sella_success_biased(df_disoc_m)
+    p_converged_sella2_transfer, p_success_sella2_transfer, p_success_sella2_overall_transfer, mean_fmax_sella2_transfer, std_fmax_sella2_transfer, mae_e_sella2_transfer, std_e_sella2_transfer = get_sella_success_biased(df_transfer_m)
     
     
     print(f"\nCatTSunami baseline:\n% Converged = {p_converged_baseline*100:1.2f}\n% Success = {p_success_baseline*100:1.2f}")
+    print(f"% Success overall = {p_success_overall_baseline*100:1.2f}")
     print(f"MAE energy [eV]: {mae_e_baseline:1.3f} ({std_e_baseline:1.3f})")
     print(f"Mean fmax [eV/Ang]: {mean_fmax_baseline:1.3f} ({std_fmax_baseline:1.3f})\n")
+
+    print(f"CatTSunami desorption:\n% Converged = {p_converged_baseline_desorp*100:1.2f}\n% Success = {p_success_baseline_desorp*100:1.2f}")
+    print(f"% Success overall = {p_success_overall_baseline_desorp*100:1.2f}")
+    print(f"MAE energy [eV]: {mae_e_baseline_desorp:1.3f} ({std_e_baseline_desorp:1.3f})")
+    print(f"Mean fmax [eV/Ang]: {mean_fmax_baseline_desorp:1.3f} ({std_fmax_baseline_desorp:1.3f})\n")
+
+    print(f"CatTSunami dissociation:\n% Converged = {p_converged_baseline_disoc*100:1.2f}\n% Success = {p_success_baseline_disoc*100:1.2f}")
+    print(f"% Success overall = {p_success_overall_baseline_disoc*100:1.2f}")
+    print(f"MAE energy [eV]: {mae_e_baseline_disoc:1.3f} ({std_e_baseline_disoc:1.3f})")
+    print(f"Mean fmax [eV/Ang]: {mean_fmax_baseline_disoc:1.3f} ({std_fmax_baseline_disoc:1.3f})\n")
+
+    print(f"CatTSunami transfer:\n% Converged = {p_converged_baseline_transfer*100:1.2f}\n% Success = {p_success_baseline_transfer*100:1.2f}")
+    print(f"% Success overall = {p_success_overall_baseline_transfer*100:1.2f}")
+    print(f"MAE energy [eV]: {mae_e_baseline_transfer:1.3f} ({std_e_baseline_transfer:1.3f})")
+    print(f"Mean fmax [eV/Ang]: {mean_fmax_baseline_transfer:1.3f} ({std_fmax_baseline_transfer:1.3f})\n")
     
     print(f"Sella convergence biased:\n% Converged = {p_converged_sella*100:1.2f}\n% Success = {p_success_sella*100:1.2f}")
+    print(f"% Success overall = {p_success_sella_overall*100:1.2f}")
     print(f"MAE energy [eV]: {mae_e_sella:1.3f} ({std_e_sella:1.3f})")
     print(f"Mean fmax [eV/Ang]: {mean_fmax_sella:1.3f} ({std_fmax_sella:1.3f})\n")
+
+    print(f"Sella convergence biased desorption:\n% Converged = {p_converged_sella_desorp*100:1.2f}\n% Success = {p_success_sella_desorp*100:1.2f}")
+    print(f"% Success overall = {p_success_sella_overall_desorp*100:1.2f}")
+    print(f"MAE energy [eV]: {mae_e_sella_desorp:1.3f} ({std_e_sella_desorp:1.3f})")
+    print(f"Mean fmax [eV/Ang]: {mean_fmax_sella_desorp:1.3f} ({std_fmax_sella_desorp:1.3f})\n")
+
+    print(f"Sella convergence biased dissociation:\n% Converged = {p_converged_sella_disoc*100:1.2f}\n% Success = {p_success_sella_disoc*100:1.2f}")
+    print(f"% Success overall = {p_success_sella_overall_disoc*100:1.2f}")
+    print(f"MAE energy [eV]: {mae_e_sella_disoc:1.3f} ({std_e_sella_disoc:1.3f})")
+    print(f"Mean fmax [eV/Ang]: {mean_fmax_sella_disoc:1.3f} ({std_fmax_sella_disoc:1.3f})\n")
+
+    print(f"Sella convergence biased transfer:\n% Converged = {p_converged_sella_transfer*100:1.2f}\n% Success = {p_success_sella_transfer*100:1.2f}")
+    print(f"% Success overall = {p_success_sella_overall_transfer*100:1.2f}")
+    print(f"MAE energy [eV]: {mae_e_sella_transfer:1.3f} ({std_e_sella_transfer:1.3f})")
+    print(f"Mean fmax [eV/Ang]: {mean_fmax_sella_transfer:1.3f} ({std_fmax_sella_transfer:1.3f})\n")
     
     print(f"Sella success biased:\n% Converged = {p_converged_sella2*100:1.2f}\n% Success = {p_success_sella2*100:1.2f}")
+    print(f"% Success overall = {p_success_sella2_overall*100:1.2f}")
     print(f"MAE energy [eV]: {mae_e_sella2:1.3f} ({std_e_sella2:1.3f})")
     print(f"Mean fmax [eV/Ang]: {mean_fmax_sella2:1.3f} ({std_fmax_sella2:1.3f})\n\n")
+
+    print(f"Sella success biased desorption:\n% Converged = {p_converged_sella2_desorp*100:1.2f}\n% Success = {p_success_sella2_desorp*100:1.2f}")
+    print(f"% Success overall = {p_success_sella2_overall_desorp*100:1.2f}")
+    print(f"MAE energy [eV]: {mae_e_sella2_desorp:1.3f} ({std_e_sella2_desorp:1.3f})")
+    print(f"Mean fmax [eV/Ang]: {mean_fmax_sella2_desorp:1.3f} ({std_fmax_sella2_desorp:1.3f})\n\n")
+
+    print(f"Sella success biased dissociation:\n% Converged = {p_converged_sella2_disoc*100:1.2f}\n% Success = {p_success_sella2_disoc*100:1.2f}")
+    print(f"% Success overall = {p_success_sella2_overall_disoc*100:1.2f}")
+    print(f"MAE energy [eV]: {mae_e_sella2_disoc:1.3f} ({std_e_sella2_disoc:1.3f})")
+    print(f"Mean fmax [eV/Ang]: {mean_fmax_sella2_disoc:1.3f} ({std_fmax_sella2_disoc:1.3f})\n\n")
+
+    print(f"Sella success biased transfer:\n% Converged = {p_converged_sella2_transfer*100:1.2f}\n% Success = {p_success_sella2_transfer*100:1.2f}")
+    print(f"% Success overall = {p_success_sella2_overall_transfer*100:1.2f}")
+    print(f"MAE energy [eV]: {mae_e_sella2_transfer:1.3f} ({std_e_sella2_transfer:1.3f})")
+    print(f"Mean fmax [eV/Ang]: {mean_fmax_sella2_transfer:1.3f} ({std_fmax_sella2_transfer:1.3f})\n\n")
     
     
-    cts_base = {"Method": "CatTSunami", "Mean fmax [eV/Ang]": f"{mean_fmax_baseline:1.3f} ({std_fmax_baseline:1.3f})",
+    cts_base_all = {"Reaction": "all", "Method": "CatTSunami", "Mean fmax [eV/Ang]": f"{mean_fmax_baseline:1.3f} ({std_fmax_baseline:1.3f})",
                "Energy MAE [eV]": f"{mae_e_baseline:1.3f} ({std_e_baseline:1.3f})",
-               "Convergence [%]": f"{p_converged_baseline*100:1.2f}", "Success [%]": f"{p_success_baseline*100:1.2f}"}
+               "Convergence [%]": f"{p_converged_baseline*100:1.2f}", "Success when converged [%]": f"{p_success_baseline*100:1.2f}", "Success overall [%]": f"{p_success_overall_baseline*100:1.2f}"}
     
-    sella_c = {"Method": "Sella refined (any converged)", "Mean fmax [eV/Ang]": f"{mean_fmax_sella:1.3f} ({std_fmax_sella:1.3f})",
+    sella_c_all = {"Reaction": "all", "Method": "Sella refined (any converged)", "Mean fmax [eV/Ang]": f"{mean_fmax_sella:1.3f} ({std_fmax_sella:1.3f})",
                "Energy MAE [eV]": f"{mae_e_sella:1.3f} ({std_e_sella:1.3f})",
-               "Convergence [%]": f"{p_converged_sella*100:1.2f}", "Success [%]": f"{p_success_sella*100:1.2f}"}
+               "Convergence [%]": f"{p_converged_sella*100:1.2f}", "Success when converged [%]": f"{p_success_sella*100:1.2f}", "Success overall [%]": f"{p_success_sella_overall*100:1.2f}"}
     
-    sella_s = {"Method": "Sella refined (both converged)", "Mean fmax [eV/Ang]": f"{mean_fmax_sella2:1.3f} ({std_fmax_sella2:1.3f})",
+    sella_s_all = {"Reaction": "all", "Method": "Sella refined (both converged)", "Mean fmax [eV/Ang]": f"{mean_fmax_sella2:1.3f} ({std_fmax_sella2:1.3f})",
                "Energy MAE [eV]": f"{mae_e_sella2:1.3f} ({std_e_sella2:1.3f})",
-               "Convergence [%]": f"{p_converged_sella2*100:1.2f}", "Success [%]": f"{p_success_sella2*100:1.2f}"}
-    df_table = pd.DataFrame([cts_base, sella_c, sella_s])
-    print(df_table.to_latex())
+               "Convergence [%]": f"{p_converged_sella2*100:1.2f}", "Success when converged [%]": f"{p_success_sella2*100:1.2f}", "Success overall [%]": f"{p_success_sella2_overall*100:1.2f}"}
+
+    cts_base_desorp = {"Reaction": "desorption", "Method": "CatTSunami", "Mean fmax [eV/Ang]": f"{mean_fmax_baseline_desorp:1.3f} ({std_fmax_baseline_desorp:1.3f})",
+                "Energy MAE [eV]": f"{mae_e_baseline_desorp:1.3f} ({std_e_baseline_desorp:1.3f})",
+                "Convergence [%]": f"{p_converged_baseline_desorp*100:1.2f}", "Success when converged [%]": f"{p_success_baseline_desorp*100:1.2f}", "Success overall [%]": f"{p_success_overall_baseline_desorp*100:1.2f}"}
+
+    sella_c_desorp = {"Reaction": "desorption", "Method": "Sella refined (any converged)", "Mean fmax [eV/Ang]": f"{mean_fmax_sella_desorp:1.3f} ({std_fmax_sella_desorp:1.3f})",
+                "Energy MAE [eV]": f"{mae_e_sella_desorp:1.3f} ({std_e_sella_desorp:1.3f})",
+                "Convergence [%]": f"{p_converged_sella_desorp*100:1.2f}", "Success when converged [%]": f"{p_success_sella_desorp*100:1.2f}", "Success overall [%]": f"{p_success_sella_overall_desorp*100:1.2f}"}
+
+    sella_s_desorp = {"Reaction": "desorption", "Method": "Sella refined (both converged)", "Mean fmax [eV/Ang]": f"{mean_fmax_sella2_desorp:1.3f} ({std_fmax_sella2_desorp:1.3f})",
+                "Energy MAE [eV]": f"{mae_e_sella2_desorp:1.3f} ({std_e_sella2_desorp:1.3f})",
+                "Convergence [%]": f"{p_converged_sella2_desorp*100:1.2f}", "Success when converged [%]": f"{p_success_sella2_desorp*100:1.2f}", "Success overall [%]": f"{p_success_sella2_overall_desorp*100:1.2f}"}   
+
+    cts_base_disoc = {"Reaction": "dissociation", "Method": "CatTSunami", "Mean fmax [eV/Ang]": f"{mean_fmax_baseline_disoc:1.3f} ({std_fmax_baseline_disoc:1.3f})",
+                "Energy MAE [eV]": f"{mae_e_baseline_disoc:1.3f} ({std_e_baseline_disoc:1.3f})",
+                "Convergence [%]": f"{p_converged_baseline_disoc*100:1.2f}", "Success when converged [%]": f"{p_success_baseline_disoc*100:1.2f}", "Success overall [%]": f"{p_success_overall_baseline_disoc*100:1.2f}"}
+
+    sella_c_disoc = {"Reaction": "dissociation", "Method": "Sella refined (any converged)", "Mean fmax [eV/Ang]": f"{mean_fmax_sella_disoc:1.3f} ({std_fmax_sella_disoc:1.3f})",
+                "Energy MAE [eV]": f"{mae_e_sella_disoc:1.3f} ({std_e_sella_disoc:1.3f})",
+                "Convergence [%]": f"{p_converged_sella_disoc*100:1.2f}", "Success when converged [%]": f"{p_success_sella_disoc*100:1.2f}", "Success overall [%]": f"{p_success_sella_overall_disoc*100:1.2f}"}
+
+    sella_s_disoc = {"Reaction": "dissociation", "Method": "Sella refined (both converged)", "Mean fmax [eV/Ang]": f"{mean_fmax_sella2_disoc:1.3f} ({std_fmax_sella2_disoc:1.3f})",
+                "Energy MAE [eV]": f"{mae_e_sella2_disoc:1.3f} ({std_e_sella2_disoc:1.3f})",
+                "Convergence [%]": f"{p_converged_sella2_disoc*100:1.2f}", "Success when converged [%]": f"{p_success_sella2_disoc*100:1.2f}", "Success overall [%]": f"{p_success_sella2_overall_disoc*100:1.2f}"}
+
+    cts_base_transfer = {"Reaction": "transfer", "Method": "CatTSunami", "Mean fmax [eV/Ang]": f"{mean_fmax_baseline_transfer:1.3f} ({std_fmax_baseline_transfer:1.3f})",
+                "Energy MAE [eV]": f"{mae_e_baseline_transfer:1.3f} ({std_e_baseline_transfer:1.3f})",
+                "Convergence [%]": f"{p_converged_baseline_transfer*100:1.2f}", "Success when converged [%]": f"{p_success_baseline_transfer*100:1.2f}", "Success overall [%]": f"{p_success_overall_baseline_transfer*100:1.2f}"}
+
+    sella_c_transfer = {"Reaction": "transfer", "Method": "Sella refined (any converged)", "Mean fmax [eV/Ang]": f"{mean_fmax_sella_transfer:1.3f} ({std_fmax_sella_transfer:1.3f})",
+                "Energy MAE [eV]": f"{mae_e_sella_transfer:1.3f} ({std_e_sella_transfer:1.3f})",
+                "Convergence [%]": f"{p_converged_sella_transfer*100:1.2f}", "Success when converged [%]": f"{p_success_sella_transfer*100:1.2f}", "Success overall [%]": f"{p_success_sella_overall_transfer*100:1.2f}"}
+
+    sella_s_transfer = {"Reaction": "transfer", "Method": "Sella refined (both converged)", "Mean fmax [eV/Ang]": f"{mean_fmax_sella2_transfer:1.3f} ({std_fmax_sella2_transfer:1.3f})",
+                "Energy MAE [eV]": f"{mae_e_sella2_transfer:1.3f} ({std_e_sella2_transfer:1.3f})",
+                "Convergence [%]": f"{p_converged_sella2_transfer*100:1.2f}", "Success when converged [%]": f"{p_success_sella2_transfer*100:1.2f}", "Success overall [%]": f"{p_success_sella2_overall_transfer*100:1.2f}"}
+
+
+    df_table = pd.DataFrame([cts_base_all, sella_c_all, sella_s_all, cts_base_desorp, sella_c_desorp, sella_s_desorp, cts_base_disoc, sella_c_disoc, sella_s_disoc, cts_base_transfer, sella_c_transfer, sella_s_transfer])
+    # print latex table dropping indices
+    print(df_table.to_latex(index=False))
     
 
     # Make fmax density plot
